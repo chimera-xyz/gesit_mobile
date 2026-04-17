@@ -1,0 +1,47 @@
+<svg width="420" height="108" viewBox="0 0 420 108" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gold-1" x1="8" y1="6" x2="74" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF5CF"/>
+      <stop offset="0.18" stop-color="#F1D47E"/>
+      <stop offset="0.46" stop-color="#D7A63E"/>
+      <stop offset="0.72" stop-color="#B77714"/>
+      <stop offset="1" stop-color="#774608"/>
+    </linearGradient>
+    <linearGradient id="gold-2" x1="16" y1="20" x2="60" y2="86" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E6C15B"/>
+      <stop offset="1" stop-color="#8A5310"/>
+    </linearGradient>
+    <linearGradient id="silver-1" x1="14" y1="74" x2="68" y2="94" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5F6F9"/>
+      <stop offset="0.46" stop-color="#D4D9E0"/>
+      <stop offset="1" stop-color="#7E8792"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(4 6)">
+    <path d="M4 8H28.5C44.2401 8 57 20.7599 57 36.5V42H46V38.5C46 27.7304 37.2696 19 26.5 19H4V8Z" fill="url(#gold-1)"/>
+    <path d="M74 8H49.5C33.7599 8 21 20.7599 21 36.5V42H32V38.5C32 27.7304 40.7304 19 51.5 19H74V8Z" fill="url(#gold-1)"/>
+
+    <path d="M1 24H28.2C48.5231 24 65 40.4769 65 60.8V92H50V64.5C50 50.969 39.031 40 25.5 40H1V24Z" fill="url(#gold-1)"/>
+    <path d="M77 24H49.8C29.4769 24 13 40.4769 13 60.8V92H28V64.5C28 50.969 38.969 40 52.5 40H77V24Z" fill="url(#gold-1)"/>
+
+    <path d="M14 16H31.4C44.9862 16 56 27.0138 56 40.6V92H43V45.5C43 35.835 35.165 28 25.5 28H14V16Z" fill="url(#gold-2)" opacity="0.96"/>
+    <path d="M64 16H46.6C33.0138 16 22 27.0138 22 40.6V92H35V45.5C35 35.835 42.835 28 52.5 28H64V16Z" fill="url(#gold-2)" opacity="0.96"/>
+
+    <path d="M35 8H43V92H35V8Z" fill="url(#gold-1)"/>
+    <path d="M14 74H64V84H14V74Z" fill="url(#silver-1)"/>
+    <path d="M12 84H66V91H12V84Z" fill="url(#silver-1)" opacity="0.82"/>
+
+    <path d="M7 11H24.2C35.1342 11 44 19.8658 44 30.8V33H38V31.8C38 23.6262 31.3738 17 23.2 17H7V11Z" fill="#FFF9E2" opacity="0.72"/>
+    <path d="M71 11H53.8C42.8658 11 34 19.8658 34 30.8V33H40V31.8C40 23.6262 46.6262 17 54.8 17H71V11Z" fill="#FFF9E2" opacity="0.72"/>
+  </g>
+
+  <g fill="#8F560E">
+    <text x="98" y="40" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700">
+      PT. YULIE SEKURITAS
+    </text>
+    <text x="98" y="70" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700">
+      INDONESIA Tbk.
+    </text>
+  </g>
+</svg>

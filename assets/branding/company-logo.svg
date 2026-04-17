@@ -1,0 +1,40 @@
+<svg width="392" height="116" viewBox="0 0 392 116" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="brand-gold" x1="10" y1="12" x2="90" y2="102" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF4C8"/>
+      <stop offset="0.22" stop-color="#EDC96A"/>
+      <stop offset="0.52" stop-color="#C78E23"/>
+      <stop offset="1" stop-color="#7A4708"/>
+    </linearGradient>
+    <linearGradient id="brand-text" x1="110" y1="24" x2="360" y2="96" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9C6210"/>
+      <stop offset="1" stop-color="#6E4008"/>
+    </linearGradient>
+    <filter id="brand-shadow" x="0" y="4" width="98" height="108" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="6"/>
+      <feGaussianBlur stdDeviation="4"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.478431 0 0 0 0 0.278431 0 0 0 0 0.0313726 0 0 0 0.2 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_0_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_0_1" result="shape"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#brand-shadow)">
+    <path d="M14 18H34.5C52.7254 18 67.5 32.7746 67.5 51V96H52.5V56.5C52.5 44.0736 42.4264 34 30 34H14V18Z" fill="url(#brand-gold)"/>
+    <path d="M73.5 18H53C34.7746 18 20 32.7746 20 51V96H35V56.5C35 44.0736 45.0736 34 57.5 34H73.5V18Z" fill="url(#brand-gold)"/>
+    <path d="M8 33.5H29C43.3594 33.5 55 45.1406 55 59.5V96H42.5V64.5C42.5 54.835 34.665 47 25 47H8V33.5Z" fill="url(#brand-gold)" opacity="0.82"/>
+    <path d="M79 33.5H58C43.6406 33.5 32 45.1406 32 59.5V96H44.5V64.5C44.5 54.835 52.335 47 62 47H79V33.5Z" fill="url(#brand-gold)" opacity="0.82"/>
+    <path d="M38.5 18H49V96H38.5V18Z" fill="url(#brand-gold)"/>
+    <path d="M22 68H64V80H22V68Z" fill="url(#brand-gold)" opacity="0.75"/>
+  </g>
+
+  <text x="110" y="42" fill="url(#brand-text)" font-family="Georgia, 'Times New Roman', serif" font-size="28" font-weight="700" letter-spacing="3.4">
+    YULIE SEKURITAS
+  </text>
+  <text x="112" y="80" fill="url(#brand-text)" font-family="Georgia, 'Times New Roman', serif" font-size="24" font-weight="700" letter-spacing="8.1">
+    INDONESIA
+  </text>
+  <rect x="112" y="90" width="188" height="4" rx="2" fill="url(#brand-text)" opacity="0.28"/>
+</svg>
