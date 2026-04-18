@@ -213,6 +213,7 @@ class SubmissionTimelineStep {
     required this.note,
     required this.accentColor,
     required this.icon,
+    this.requiresSignature = false,
   });
 
   final String title;
@@ -222,6 +223,7 @@ class SubmissionTimelineStep {
   final String note;
   final Color accentColor;
   final IconData icon;
+  final bool requiresSignature;
 }
 
 class SubmissionField {
