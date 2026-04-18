@@ -80,19 +80,12 @@ class BrandSurface extends StatelessWidget {
         color: backgroundColor ?? AppColors.surface.withValues(alpha: 0.9),
         borderRadius: borderRadius,
         border: Border.all(color: AppColors.border),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x12291C09),
-            blurRadius: 34,
-            offset: Offset(0, 14),
-          ),
-        ],
       ),
       child: Padding(padding: padding, child: child),
     );
 
     if (onTap == null) {
-      return content;
+      return Material(color: Colors.transparent, child: content);
     }
 
     return Material(

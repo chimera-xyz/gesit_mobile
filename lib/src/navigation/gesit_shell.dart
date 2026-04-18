@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../data/demo_data.dart';
 import '../models/app_models.dart';
 import '../screens/chat/chat_conversation_screen.dart';
 import '../screens/chat/chat_hub_screen.dart';
@@ -7,8 +8,7 @@ import '../screens/chat/group_detail_screen.dart';
 import '../screens/forms_screen.dart';
 import '../screens/helpdesk_screen.dart';
 import '../screens/home_screen.dart';
-import '../screens/knowledge_assistant_screen.dart';
-import '../screens/knowledge_hub_screen.dart';
+import '../screens/knowledge_workspace_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/submission_detail_screen.dart';
 import '../screens/tasks_screen.dart';
@@ -74,11 +74,11 @@ class _GesitShellState extends State<GesitShell>
   }
 
   void _openKnowledgeHub() {
-    pushBrandedRoute(context, const KnowledgeHubScreen());
+    pushBrandedRoute(context, const KnowledgeWorkspaceScreen());
   }
 
   void _openAiAssist() {
-    pushBrandedRoute(context, const KnowledgeAssistantScreen());
+    pushBrandedRoute(context, const KnowledgeWorkspaceScreen());
   }
 
   void _openConversation(ConversationPreview conversation) {
@@ -98,11 +98,15 @@ class _GesitShellState extends State<GesitShell>
 
   @override
   Widget build(BuildContext context) {
-    final items = const [
+    final items = [
       _NavItem(label: 'Home', icon: Icons.dashboard_rounded),
       _NavItem(label: 'Tasks', icon: Icons.fact_check_rounded),
       _NavItem(label: 'Forms', icon: Icons.description_rounded),
-      _NavItem(label: 'Chat', icon: Icons.forum_rounded),
+      _NavItem(
+        label: 'Chat',
+        icon: Icons.forum_rounded,
+        badgeCount: DemoData.unreadChatCount,
+      ),
       _NavItem(label: 'Profile', icon: Icons.person_rounded),
     ];
     final screens = <Widget>[
@@ -111,9 +115,7 @@ class _GesitShellState extends State<GesitShell>
         onOpenTasks: () => _selectTab(1),
         onOpenForms: () => _selectTab(2),
         onOpenAiAssist: _openAiAssist,
-        onOpenChat: () => _selectTab(3),
         onOpenHelpdesk: _openHelpdesk,
-        onOpenSubmission: _openSubmission,
       ),
       TasksScreen(
         key: const PageStorageKey('tasks-tab'),
@@ -230,8 +232,9 @@ class _GesitShellState extends State<GesitShell>
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              items[index].icon,
+                            _NavIcon(
+                              icon: items[index].icon,
+                              badgeCount: items[index].badgeCount,
                               color: _currentIndex == index
                                   ? AppColors.goldDeep
                                   : AppColors.inkMuted,
@@ -262,10 +265,72 @@ class _GesitShellState extends State<GesitShell>
 }
 
 class _NavItem {
-  const _NavItem({required this.label, required this.icon});
+  const _NavItem({
+    required this.label,
+    required this.icon,
+    this.badgeCount = 0,
+  });
 
   final String label;
   final IconData icon;
+  final int badgeCount;
+}
+
+class _NavIcon extends StatelessWidget {
+  const _NavIcon({
+    required this.icon,
+    required this.color,
+    required this.badgeCount,
+  });
+
+  final IconData icon;
+  final Color color;
+  final int badgeCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon, color: color),
+        if (badgeCount > 0)
+          Positioned(top: -8, right: -12, child: _NavBadge(count: badgeCount)),
+      ],
+    );
+  }
+}
+
+class _NavBadge extends StatelessWidget {
+  const _NavBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = count > 99 ? '99+' : '$count';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.red,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: AppColors.surface.withValues(alpha: 0.96),
+          width: 1.2,
+        ),
+      ),
+      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: Colors.white,
+          fontWeight: FontWeight.w900,
+          height: 1,
+        ),
+      ),
+    );
+  }
 }
 
 class _TabBodyLayer extends StatelessWidget {

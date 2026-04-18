@@ -1,44 +1,61 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 
 import '../data/demo_data.dart';
-import '../models/app_models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     required this.onOpenTasks,
     required this.onOpenForms,
     required this.onOpenAiAssist,
-    required this.onOpenChat,
     required this.onOpenHelpdesk,
-    required this.onOpenSubmission,
   });
 
   final VoidCallback onOpenTasks;
   final VoidCallback onOpenForms;
   final VoidCallback onOpenAiAssist;
-  final VoidCallback onOpenChat;
   final VoidCallback onOpenHelpdesk;
-  final ValueChanged<TaskItem> onOpenSubmission;
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late DateTime _now;
+  Timer? _clockTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _now = DateTime.now();
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _now = DateTime.now();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final approvalItems = DemoData.tasks
-        .where((task) => task.lane == TaskLane.approvals)
-        .take(2)
-        .toList();
-    final pendingApprovalCount = DemoData.tasks
-        .where((task) => task.lane == TaskLane.approvals)
-        .length;
-    final today = DateFormat(
-      'EEEE, d MMM yyyy',
-      'id_ID',
-    ).format(DateTime.now());
+    final pendingApprovalCount = DemoData.pendingApprovalCount;
+    final today = DateFormat('EEEE, d MMM yyyy', 'id_ID').format(_now);
+    final currentTime = DateFormat('HH:mm:ss', 'id_ID').format(_now);
 
     return SingleChildScrollView(
       physics: const ClampingScrollPhysics(),
@@ -124,14 +141,9 @@ class HomeScreen extends StatelessWidget {
                     runSpacing: 10,
                     children: [
                       StatusChip(
-                        label: today,
+                        label: '$today • $currentTime',
                         color: AppColors.goldDeep,
                         icon: Icons.calendar_today_rounded,
-                      ),
-                      StatusChip(
-                        label: '$pendingApprovalCount review',
-                        color: AppColors.blue,
-                        icon: Icons.fact_check_rounded,
                       ),
                     ],
                   ),
@@ -140,7 +152,7 @@ class HomeScreen extends StatelessWidget {
                     children: [
                       Expanded(
                         child: FilledButton.icon(
-                          onPressed: onOpenTasks,
+                          onPressed: widget.onOpenTasks,
                           icon: const Icon(Icons.fact_check_rounded),
                           label: const Text('Tasks'),
                         ),
@@ -148,7 +160,7 @@ class HomeScreen extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: onOpenAiAssist,
+                          onPressed: widget.onOpenAiAssist,
                           icon: const Icon(Icons.auto_awesome_rounded),
                           label: const Text('AI Assist'),
                         ),
@@ -160,72 +172,40 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          SectionHeader(
-            eyebrow: 'Approval',
-            title: 'Need review',
-            trailing: TextButton(
-              onPressed: onOpenTasks,
-              child: const Text('Lihat semua'),
-            ),
-          ),
-          const SizedBox(height: 14),
-          RevealUp(
-            index: 2,
-            child: BrandSurface(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                children: [
-                  for (
-                    var index = 0;
-                    index < approvalItems.length;
-                    index++
-                  ) ...[
-                    _ApprovalInboxRow(
-                      item: approvalItems[index],
-                      onTap: () => onOpenSubmission(approvalItems[index]),
-                    ),
-                    if (index != approvalItems.length - 1)
-                      const Divider(height: 1),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
           const SectionHeader(eyebrow: 'Status', title: 'Today'),
           const SizedBox(height: 14),
           Row(
             children: [
               Expanded(
                 child: _CompactStatusCard(
-                  title: 'Forms',
-                  value: '16',
-                  subtitle: 'Aktif',
+                  title: 'Form Aktif',
+                  value: '${DemoData.activeFormCount}',
+                  subtitle: 'Tersedia',
                   icon: Icons.description_rounded,
                   accentColor: AppColors.goldDeep,
-                  onTap: onOpenForms,
+                  onTap: widget.onOpenForms,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _CompactStatusCard(
+                  title: 'Task',
+                  value: '$pendingApprovalCount',
+                  subtitle: 'Pengajuan baru',
+                  icon: Icons.fact_check_rounded,
+                  accentColor: AppColors.blue,
+                  onTap: widget.onOpenTasks,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _CompactStatusCard(
                   title: 'Helpdesk',
-                  value: '4',
+                  value: '${DemoData.openHelpdeskCount}',
                   subtitle: 'Open',
                   icon: Icons.support_agent_rounded,
                   accentColor: AppColors.red,
-                  onTap: onOpenHelpdesk,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _CompactStatusCard(
-                  title: 'Chat',
-                  value: '27',
-                  subtitle: 'Unread',
-                  icon: Icons.mark_chat_unread_rounded,
-                  accentColor: AppColors.emerald,
-                  onTap: onOpenChat,
+                  onTap: widget.onOpenHelpdesk,
                 ),
               ),
             ],
@@ -255,106 +235,38 @@ class _CompactStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BrandSurface(
-      onTap: onTap,
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: accentColor),
-          const SizedBox(height: 18),
-          Text(
-            value,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontSize: 24),
-          ),
-          const SizedBox(height: 4),
-          Text(title, style: Theme.of(context).textTheme.bodySmall),
-          Text(
-            subtitle,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: AppColors.inkMuted),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ApprovalInboxRow extends StatelessWidget {
-  const _ApprovalInboxRow({required this.item, required this.onTap});
-
-  final TaskItem item;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(22),
+    return SizedBox(
+      height: 146,
+      child: BrandSurface(
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 2),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  StatusChip(label: item.statusLabel, color: item.accentColor),
-                  const Spacer(),
-                  Text(
-                    item.timeLabel,
-                    style: textTheme.bodySmall?.copyWith(
-                      color: AppColors.inkMuted,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                item.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: textTheme.titleMedium?.copyWith(fontSize: 18),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      item.requester,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: textTheme.bodySmall?.copyWith(
-                        color: AppColors.ink,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  if (item.requiresSignature)
-                    const Padding(
-                      padding: EdgeInsets.only(left: 10),
-                      child: Icon(
-                        Icons.draw_rounded,
-                        size: 16,
-                        color: AppColors.red,
-                      ),
-                    ),
-                  const SizedBox(width: 10),
-                  const Icon(
-                    Icons.arrow_forward_rounded,
-                    size: 18,
-                    color: AppColors.goldDeep,
-                  ),
-                ],
-              ),
-            ],
-          ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20, color: accentColor),
+            const Spacer(),
+            Text(
+              value,
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontSize: 24),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            Text(
+              subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.inkMuted),
+            ),
+          ],
         ),
       ),
     );

@@ -5,8 +5,11 @@ import '../theme/app_theme.dart';
 
 class DemoData {
   static const String userName = 'Raihan Carjasti';
+  static const String userEmail = 'raihan.carjasti@gesit.co.id';
+  static const String userEmployeeId = 'EMP-240118';
   static const String userRole = 'Operations & Internal Platform';
   static const String userDivision = 'Internal Transformation Unit';
+  static const int activeFormCount = 16;
 
   static const List<DashboardStat> dashboardStats = [
     DashboardStat(
@@ -111,42 +114,173 @@ class DemoData {
 
   static const List<FormTemplate> forms = [
     FormTemplate(
-      title: 'Pengadaan Perangkat Kerja',
+      title: 'Form Pengadaan Hardware / Software',
       description:
-          'Request laptop, monitor, mobile device, atau aksesoris kerja baru untuk tim internal.',
+          'Pengajuan kebutuhan hardware atau software dengan alur review IT, persetujuan direktur operasional, dan proses accounting.',
       category: 'Procurement',
-      workflow: 'Procurement Flow V2',
+      workflow: 'Hardware/Software Procurement',
       etaLabel: '3-5 hari kerja',
       fields: [
-        'Nama barang',
-        'Spesifikasi',
-        'Urgensi bisnis',
-        'Budget owner',
-        'Attachment quotation',
+        FormFieldConfig(
+          id: 'employee_name',
+          label: 'Nama Karyawan',
+          type: FormFieldType.text,
+          initialValue: userName,
+          readOnly: true,
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'department',
+          label: 'Departemen',
+          type: FormFieldType.text,
+          initialValue: userDivision,
+          readOnly: true,
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'request_date',
+          label: 'Tanggal Pengajuan',
+          type: FormFieldType.date,
+          initialValue: '18 April 2026',
+          readOnly: true,
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'item_name',
+          label: 'Nama Barang',
+          type: FormFieldType.text,
+          placeholder: 'Contoh: Laptop kerja divisi marketing',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'item_type',
+          label: 'Tipe Barang',
+          type: FormFieldType.select,
+          options: ['Hardware', 'Software'],
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'quantity',
+          label: 'Jumlah',
+          type: FormFieldType.number,
+          placeholder: '1',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'specifications',
+          label: 'Spesifikasi yang Diinginkan',
+          type: FormFieldType.multiline,
+          placeholder:
+              'Jelaskan spesifikasi, merk yang diinginkan, lisensi, kapasitas, atau kebutuhan teknis lain.',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'reason',
+          label: 'Alasan Ingin Membeli',
+          type: FormFieldType.multiline,
+          placeholder:
+              'Jelaskan kebutuhan bisnis, kendala saat ini, dan dampak jika tidak dipenuhi.',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'urgency',
+          label: 'Status Urgensi',
+          type: FormFieldType.select,
+          options: ['Urgent', 'Normal', 'Slow'],
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'needed_by_date',
+          label: 'Dibutuhkan Sebelum',
+          type: FormFieldType.date,
+        ),
+        FormFieldConfig(
+          id: 'estimated_cost',
+          label: 'Estimasi Biaya (Rp)',
+          type: FormFieldType.number,
+          placeholder: 'Contoh: 15000000',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'vendor_preference',
+          label: 'Vendor / Referensi (Opsional)',
+          type: FormFieldType.text,
+          placeholder: 'Contoh: Tokopedia, Bhinneka, Microsoft 365 Business',
+        ),
       ],
       approvalSteps: [
-        'Requester',
-        'Head Division',
-        'Finance',
-        'Procurement',
-        'Done',
+        'Pengajuan Dibuat',
+        'Review Kelayakan IT',
+        'Persetujuan Direktur Operasional',
+        'Proses Pembayaran Accounting',
+        'Konfirmasi Sudah Bayar',
+        'Selesai',
       ],
       accentColor: AppColors.goldDeep,
       tags: ['High usage', 'Signature', 'PDF'],
+      descriptionVerified: true,
     ),
     FormTemplate(
       title: 'Permintaan Akses Sistem',
-      description:
-          'Aktivasi user baru, perubahan role, atau pencabutan akses sistem internal seperti S21+.',
+      description: '',
       category: 'Access',
       workflow: 'Access Control Flow',
       etaLabel: '1-2 hari kerja',
       fields: [
-        'Nama user',
-        'Employee ID',
-        'Role yang diminta',
-        'Justifikasi akses',
-        'Tanggal efektif',
+        FormFieldConfig(
+          id: 'request_type',
+          label: 'Jenis Permintaan',
+          type: FormFieldType.select,
+          options: ['User Baru', 'Perubahan Role', 'Pencabutan Akses'],
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'system_name',
+          label: 'Sistem Tujuan',
+          type: FormFieldType.select,
+          options: ['S21+', 'GESIT Core', 'HRIS', 'Email Korporat'],
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'user_name',
+          label: 'Nama User',
+          type: FormFieldType.text,
+          placeholder: 'Nama lengkap user yang diajukan',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'employee_id',
+          label: 'Employee ID',
+          type: FormFieldType.text,
+          placeholder: 'Contoh: EMP-240118',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'requested_role',
+          label: 'Role yang Diminta',
+          type: FormFieldType.select,
+          options: ['Viewer', 'Maker', 'Checker', 'Approver', 'Admin'],
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'effective_date',
+          label: 'Tanggal Efektif',
+          type: FormFieldType.date,
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'request_reason',
+          label: 'Justifikasi Akses',
+          type: FormFieldType.multiline,
+          placeholder: 'Jelaskan kebutuhan akses dan cakupan pekerjaannya',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'supporting_document',
+          label: 'Dokumen Pendukung',
+          type: FormFieldType.file,
+          helperText: 'Optional untuk lampiran approval atau memo internal',
+        ),
       ],
       approvalSteps: ['Requester', 'Manager', 'IT Security', 'IT Ops', 'Done'],
       accentColor: AppColors.blue,
@@ -154,17 +288,44 @@ class DemoData {
     ),
     FormTemplate(
       title: 'Perjalanan Dinas',
-      description:
-          'Kebutuhan tiket, hotel, cash advance, dan approval budget untuk perjalanan dinas karyawan.',
+      description: '',
       category: 'Travel',
       workflow: 'Corporate Travel Flow',
       etaLabel: '2-3 hari kerja',
       fields: [
-        'Tujuan perjalanan',
-        'Tanggal berangkat',
-        'Tanggal pulang',
-        'Nominal estimasi',
-        'Tujuan bisnis',
+        FormFieldConfig(
+          id: 'destination_city',
+          label: 'Tujuan Perjalanan',
+          type: FormFieldType.text,
+          placeholder: 'Contoh: Surabaya',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'departure_date',
+          label: 'Tanggal Berangkat',
+          type: FormFieldType.date,
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'return_date',
+          label: 'Tanggal Pulang',
+          type: FormFieldType.date,
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'estimated_amount',
+          label: 'Nominal Estimasi',
+          type: FormFieldType.number,
+          placeholder: 'Contoh: 3500000',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'business_purpose',
+          label: 'Tujuan Bisnis',
+          type: FormFieldType.multiline,
+          placeholder: 'Jelaskan agenda dan kebutuhan perjalanan',
+          required: true,
+        ),
       ],
       approvalSteps: ['Requester', 'Head Division', 'Finance', 'GA', 'Done'],
       accentColor: AppColors.emerald,
@@ -172,17 +333,46 @@ class DemoData {
     ),
     FormTemplate(
       title: 'Vendor Onboarding',
-      description:
-          'Pendaftaran vendor baru, upload legal document, dan validasi data pembayaran.',
+      description: '',
       category: 'Vendor',
       workflow: 'Vendor Due Diligence',
       etaLabel: '4-7 hari kerja',
       fields: [
-        'Nama vendor',
-        'PIC vendor',
-        'NPWP',
-        'Nomor rekening',
-        'Dokumen legal',
+        FormFieldConfig(
+          id: 'vendor_name',
+          label: 'Nama Vendor',
+          type: FormFieldType.text,
+          placeholder: 'Nama badan usaha atau perusahaan',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'vendor_pic',
+          label: 'PIC Vendor',
+          type: FormFieldType.text,
+          placeholder: 'Nama PIC utama vendor',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'vendor_npwp',
+          label: 'NPWP',
+          type: FormFieldType.text,
+          placeholder: 'Masukkan nomor NPWP vendor',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'bank_account',
+          label: 'Nomor Rekening',
+          type: FormFieldType.text,
+          placeholder: 'Masukkan rekening pembayaran',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'legal_document',
+          label: 'Dokumen Legal',
+          type: FormFieldType.file,
+          helperText: 'NPWP, NIB, akta, atau dokumen legal terkait',
+          required: true,
+        ),
       ],
       approvalSteps: ['Requester', 'Procurement', 'Legal', 'Finance', 'Done'],
       accentColor: AppColors.red,
@@ -190,17 +380,51 @@ class DemoData {
     ),
     FormTemplate(
       title: 'Marketing Collateral Request',
-      description:
-          'Permintaan desain materi promosi, banner event, dan kebutuhan publikasi internal atau eksternal.',
+      description: '',
       category: 'Marketing',
       workflow: 'Campaign Asset Flow',
       etaLabel: '2-4 hari kerja',
       fields: [
-        'Nama campaign',
-        'Output yang dibutuhkan',
-        'Tanggal deadline',
-        'Audience',
-        'Brief kreatif',
+        FormFieldConfig(
+          id: 'campaign_name',
+          label: 'Nama Campaign',
+          type: FormFieldType.text,
+          placeholder: 'Contoh: Investor Gathering Q2',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'asset_output',
+          label: 'Output yang Dibutuhkan',
+          type: FormFieldType.select,
+          options: [
+            'Banner',
+            'Social Media Post',
+            'Presentation Deck',
+            'Video',
+          ],
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'deadline',
+          label: 'Tanggal Deadline',
+          type: FormFieldType.date,
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'audience',
+          label: 'Audience',
+          type: FormFieldType.text,
+          placeholder: 'Contoh: Nasabah existing dan calon investor',
+          required: true,
+        ),
+        FormFieldConfig(
+          id: 'creative_brief',
+          label: 'Brief Kreatif',
+          type: FormFieldType.multiline,
+          placeholder:
+              'Jelaskan pesan utama, tone, dan reference yang dibutuhkan',
+          required: true,
+        ),
       ],
       approvalSteps: ['Requester', 'Marketing Lead', 'Design Team', 'Done'],
       accentColor: AppColors.amber,
@@ -691,4 +915,12 @@ class DemoData {
 
   static List<GroupMember> membersFor(String id) =>
       List<GroupMember>.from(_members[id] ?? const []);
+
+  static int get pendingApprovalCount =>
+      tasks.where((task) => task.lane == TaskLane.approvals).length;
+
+  static int get openHelpdeskCount => helpdeskTickets.length;
+
+  static int get unreadChatCount =>
+      conversations.fold(0, (total, item) => total + item.unreadCount);
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/demo_data.dart';
 import '../models/app_models.dart';
+import '../screens/form_submission_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
 
@@ -36,7 +37,9 @@ class _FormsScreenState extends State<FormsScreen> {
       final matchesQuery =
           query.isEmpty ||
           form.title.toLowerCase().contains(query) ||
-          form.workflow.toLowerCase().contains(query);
+          form.workflow.toLowerCase().contains(query) ||
+          form.description.toLowerCase().contains(query) ||
+          form.tags.any((tag) => tag.toLowerCase().contains(query));
       return matchesCategory && matchesQuery;
     }).toList();
 
@@ -85,129 +88,16 @@ class _FormsScreenState extends State<FormsScreen> {
                 index: index + 1,
                 child: _FormListCard(
                   form: filteredForms[index],
-                  onTap: () => _showFormPreview(filteredForms[index]),
+                  onTap: () => pushBrandedRoute(
+                    context,
+                    FormSubmissionScreen(form: filteredForms[index]),
+                  ),
                 ),
               ),
               if (index != filteredForms.length - 1) const SizedBox(height: 12),
             ],
         ],
       ),
-    );
-  }
-
-  void _showFormPreview(FormTemplate form) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) {
-        final textTheme = Theme.of(context).textTheme;
-
-        return FractionallySizedBox(
-          heightFactor: 0.82,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-            child: BrandSurface(
-              radius: 32,
-              padding: EdgeInsets.zero,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 14, 14),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              StatusChip(
-                                label: form.category,
-                                color: form.accentColor,
-                              ),
-                              const SizedBox(height: 10),
-                              Text(form.title, style: textTheme.titleLarge),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close_rounded),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: ListView(
-                      physics: const ClampingScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-                      children: [
-                        Text('Fields', style: textTheme.titleMedium),
-                        const SizedBox(height: 12),
-                        ...form.fields.map(
-                          (field) => Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: AppColors.surfaceAlt,
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                              child: Text(field, style: textTheme.bodyMedium),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text('Flow', style: textTheme.titleMedium),
-                        const SizedBox(height: 12),
-                        for (
-                          var index = 0;
-                          index < form.approvalSteps.length;
-                          index++
-                        )
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    color: form.accentColor.withValues(
-                                      alpha: 0.12,
-                                    ),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Text(
-                                    '${index + 1}',
-                                    style: textTheme.bodySmall?.copyWith(
-                                      color: form.accentColor,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    form.approvalSteps[index],
-                                    style: textTheme.bodyMedium?.copyWith(
-                                      color: AppColors.ink,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 }
@@ -221,6 +111,8 @@ class _FormListCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final hasVerifiedDescription =
+        form.descriptionVerified && form.description.trim().isNotEmpty;
 
     return BrandSurface(
       onTap: onTap,
@@ -251,13 +143,15 @@ class _FormListCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(form.title, style: textTheme.titleLarge),
-          const SizedBox(height: 8),
-          Text(
-            form.description,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: textTheme.bodyMedium,
-          ),
+          if (hasVerifiedDescription) ...[
+            const SizedBox(height: 8),
+            Text(
+              form.description,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: textTheme.bodyMedium,
+            ),
+          ],
           const SizedBox(height: 12),
           Text(
             form.workflow,

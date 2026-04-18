@@ -4,6 +4,8 @@ enum TaskLane { approvals, notifications, ongoing }
 
 enum MessageDelivery { sending, delivered, read }
 
+enum FormFieldType { text, multiline, select, date, file, number, email }
+
 class DashboardStat {
   const DashboardStat({
     required this.label,
@@ -69,6 +71,7 @@ class FormTemplate {
     required this.approvalSteps,
     required this.accentColor,
     required this.tags,
+    this.descriptionVerified = false,
   });
 
   final String title;
@@ -76,10 +79,35 @@ class FormTemplate {
   final String category;
   final String workflow;
   final String etaLabel;
-  final List<String> fields;
+  final List<FormFieldConfig> fields;
   final List<String> approvalSteps;
   final Color accentColor;
   final List<String> tags;
+  final bool descriptionVerified;
+}
+
+class FormFieldConfig {
+  const FormFieldConfig({
+    required this.id,
+    required this.label,
+    required this.type,
+    this.placeholder,
+    this.helperText,
+    this.required = false,
+    this.readOnly = false,
+    this.initialValue,
+    this.options = const [],
+  });
+
+  final String id;
+  final String label;
+  final FormFieldType type;
+  final String? placeholder;
+  final String? helperText;
+  final bool required;
+  final bool readOnly;
+  final String? initialValue;
+  final List<String> options;
 }
 
 class HelpdeskTicket {
