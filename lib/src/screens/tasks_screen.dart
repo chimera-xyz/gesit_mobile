@@ -16,7 +16,7 @@ class TasksScreen extends StatefulWidget {
 
 class _TasksScreenState extends State<TasksScreen> {
   final TextEditingController _searchController = TextEditingController();
-  TaskLane _selectedLane = TaskLane.approvals;
+  TaskLane _selectedLane = TaskLane.actionable;
 
   @override
   void dispose() {
@@ -28,12 +28,14 @@ class _TasksScreenState extends State<TasksScreen> {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final query = _searchController.text.trim().toLowerCase();
+    final emptyStateLabel = _emptyStateLabel(hasQuery: query.isNotEmpty);
     final filteredTasks = DemoData.tasks.where((task) {
       final matchesLane = task.lane == _selectedLane;
       final matchesQuery =
           query.isEmpty ||
           task.title.toLowerCase().contains(query) ||
           task.requester.toLowerCase().contains(query) ||
+          task.workflowLabel.toLowerCase().contains(query) ||
           task.summary.toLowerCase().contains(query) ||
           task.statusLabel.toLowerCase().contains(query);
       return matchesLane && matchesQuery;
@@ -49,7 +51,7 @@ class _TasksScreenState extends State<TasksScreen> {
           const SizedBox(height: 14),
           AppSearchField(
             controller: _searchController,
-            hintText: 'Cari task, requester, atau status',
+            hintText: 'Cari pengajuan, requester, atau status',
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 14),
@@ -59,14 +61,14 @@ class _TasksScreenState extends State<TasksScreen> {
             child: Row(
               children: [
                 for (final lane in const [
-                  (label: 'Approvals', value: TaskLane.approvals),
-                  (label: 'Updates', value: TaskLane.notifications),
-                  (label: 'Ongoing', value: TaskLane.ongoing),
+                  TaskLane.actionable,
+                  TaskLane.inProgress,
+                  TaskLane.history,
                 ]) ...[
                   FilterPill(
                     label: lane.label,
-                    selected: _selectedLane == lane.value,
-                    onTap: () => setState(() => _selectedLane = lane.value),
+                    selected: _selectedLane == lane,
+                    onTap: () => setState(() => _selectedLane = lane),
                   ),
                   const SizedBox(width: 10),
                 ],
@@ -77,10 +79,7 @@ class _TasksScreenState extends State<TasksScreen> {
           if (filteredTasks.isEmpty)
             BrandSurface(
               padding: const EdgeInsets.all(18),
-              child: Text(
-                'Belum ada task yang cocok dengan pencarian atau filter ini.',
-                style: textTheme.bodyMedium,
-              ),
+              child: Text(emptyStateLabel, style: textTheme.bodyMedium),
             )
           else
             for (var index = 0; index < filteredTasks.length; index++) ...[
@@ -96,6 +95,21 @@ class _TasksScreenState extends State<TasksScreen> {
         ],
       ),
     );
+  }
+
+  String _emptyStateLabel({required bool hasQuery}) {
+    if (hasQuery) {
+      return 'Tidak ada pengajuan yang cocok dengan pencarian ini.';
+    }
+
+    switch (_selectedLane) {
+      case TaskLane.actionable:
+        return 'Belum ada pengajuan yang perlu aksi dari Anda.';
+      case TaskLane.inProgress:
+        return 'Belum ada pengajuan yang sedang diproses.';
+      case TaskLane.history:
+        return 'Belum ada riwayat pengajuan pada kategori ini.';
+    }
   }
 }
 
@@ -145,7 +159,7 @@ class _TaskListCard extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  '${task.requester} • ${task.priorityLabel}',
+                  '${task.requester} • ${task.workflowLabel}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: textTheme.bodySmall?.copyWith(

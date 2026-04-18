@@ -1,6 +1,50 @@
 import 'package:flutter/material.dart';
 
-enum TaskLane { approvals, notifications, ongoing }
+enum TaskLane { actionable, inProgress, history }
+
+enum TaskSubmissionStatus {
+  submitted,
+  pendingIt,
+  pendingDirector,
+  pendingAccounting,
+  pendingPayment,
+  completed,
+  rejected,
+}
+
+extension TaskLaneX on TaskLane {
+  String get label {
+    switch (this) {
+      case TaskLane.actionable:
+        return 'Perlu Aksi';
+      case TaskLane.inProgress:
+        return 'Diproses';
+      case TaskLane.history:
+        return 'Riwayat';
+    }
+  }
+}
+
+extension TaskSubmissionStatusX on TaskSubmissionStatus {
+  String get label {
+    switch (this) {
+      case TaskSubmissionStatus.submitted:
+        return 'Dikirim';
+      case TaskSubmissionStatus.pendingIt:
+        return 'Pending IT';
+      case TaskSubmissionStatus.pendingDirector:
+        return 'Pending Direktur';
+      case TaskSubmissionStatus.pendingAccounting:
+        return 'Pending Accounting';
+      case TaskSubmissionStatus.pendingPayment:
+        return 'Konfirmasi Bayar';
+      case TaskSubmissionStatus.completed:
+        return 'Selesai';
+      case TaskSubmissionStatus.rejected:
+        return 'Ditolak';
+    }
+  }
+}
 
 enum MessageDelivery { sending, delivered, read }
 
@@ -152,23 +196,35 @@ class TaskItem {
     required this.title,
     required this.requester,
     required this.summary,
-    required this.statusLabel,
+    required this.workflowLabel,
+    required this.workflowStatus,
     required this.priorityLabel,
     required this.timeLabel,
     required this.lane,
     required this.accentColor,
+    required this.formFields,
     this.requiresSignature = false,
+    this.attachmentLabel = 'submission.pdf',
+    this.rejectedAtStep,
+    this.rejectionReason,
   });
 
   final String title;
   final String requester;
   final String summary;
-  final String statusLabel;
+  final String workflowLabel;
+  final TaskSubmissionStatus workflowStatus;
   final String priorityLabel;
   final String timeLabel;
   final TaskLane lane;
   final Color accentColor;
+  final List<SubmissionField> formFields;
   final bool requiresSignature;
+  final String attachmentLabel;
+  final int? rejectedAtStep;
+  final String? rejectionReason;
+
+  String get statusLabel => workflowStatus.label;
 }
 
 class FormTemplate {

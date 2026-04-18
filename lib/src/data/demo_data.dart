@@ -45,70 +45,259 @@ class DemoData {
   static const List<TaskItem> tasks = [
     TaskItem(
       title: 'Requisition Laptop Trading Desk',
-      requester: 'Raihan Carjasti',
-      summary:
-          'Pembayaran accounting sudah diproses, tinggal konfirmasi bayar untuk menutup workflow.',
-      statusLabel: 'Konfirmasi Bayar',
-      priorityLabel: 'High',
-      timeLabel: 'Hari ini, 11:30',
-      lane: TaskLane.approvals,
-      accentColor: AppColors.goldDeep,
-      requiresSignature: true,
-    ),
-    TaskItem(
-      title: 'Pengadaan Macbook',
-      requester: 'RC Geming',
-      summary:
-          'Perubahan role access untuk user baru. Menunggu approval head unit.',
-      statusLabel: 'Access',
-      priorityLabel: 'Normal',
-      timeLabel: 'Hari ini, 14:00',
-      lane: TaskLane.approvals,
-      accentColor: AppColors.blue,
-    ),
-    TaskItem(
-      title: 'Vendor Onboarding Document Pack',
       requester: 'Maya Finance Ops',
       summary:
-          'Legal note baru masuk. Dokumen versi revisi sudah tersedia untuk direview.',
-      statusLabel: 'Update Status',
-      priorityLabel: 'Info',
-      timeLabel: '10 menit lalu',
-      lane: TaskLane.notifications,
-      accentColor: AppColors.emerald,
+          'Invoice vendor sudah diverifikasi dan submission tinggal menunggu konfirmasi bayar untuk menutup workflow.',
+      workflowLabel: 'Hardware/Software Procurement',
+      workflowStatus: TaskSubmissionStatus.pendingPayment,
+      priorityLabel: 'Mendesak',
+      timeLabel: 'Hari ini, 11:30',
+      lane: TaskLane.actionable,
+      accentColor: AppColors.goldDeep,
+      formFields: [
+        SubmissionField(
+          label: 'Nama Barang',
+          value: 'Laptop Trading Desk Lenovo ThinkPad X1 Carbon Gen 13',
+        ),
+        SubmissionField(label: 'Tipe Barang', value: 'Hardware'),
+        SubmissionField(label: 'Jumlah', value: '2 unit'),
+        SubmissionField(
+          label: 'Spesifikasi',
+          value: 'Intel Core Ultra 7, RAM 32 GB, SSD 1 TB, layar 14 inci.',
+        ),
+        SubmissionField(
+          label: 'Kebutuhan Bisnis',
+          value:
+              'Replacement device untuk analis dealing room agar performa workstation tetap stabil.',
+        ),
+        SubmissionField(label: 'Dibutuhkan Sebelum', value: '25 Apr 2026'),
+        SubmissionField(label: 'Estimasi Biaya', value: 'Rp 58.000.000'),
+        SubmissionField(
+          label: 'Vendor / Referensi',
+          value: 'Bhinneka Corporate',
+        ),
+      ],
+      requiresSignature: true,
+      attachmentLabel: 'quotation-laptop-trading-desk.pdf',
+    ),
+    TaskItem(
+      title: 'Perubahan Hak Akses Treasury Portal',
+      requester: 'RC Geming',
+      summary:
+          'Akses maker-checker untuk user baru sudah diajukan dan saat ini menunggu review dari tim IT.',
+      workflowLabel: 'User Access Request',
+      workflowStatus: TaskSubmissionStatus.pendingIt,
+      priorityLabel: 'Normal',
+      timeLabel: 'Hari ini, 14:00',
+      lane: TaskLane.actionable,
+      accentColor: AppColors.blue,
+      formFields: [
+        SubmissionField(label: 'Jenis Permintaan', value: 'Perubahan Role'),
+        SubmissionField(label: 'Sistem Tujuan', value: 'Treasury Portal'),
+        SubmissionField(label: 'Nama User', value: 'Reza Pratama'),
+        SubmissionField(label: 'Employee ID', value: 'EMP-241207'),
+        SubmissionField(label: 'Role yang Diminta', value: 'Checker'),
+        SubmissionField(label: 'Tanggal Efektif', value: '20 Apr 2026'),
+        SubmissionField(
+          label: 'Justifikasi Akses',
+          value:
+              'Penyesuaian otorisasi transaksi untuk rotasi peran di unit treasury.',
+        ),
+      ],
+      attachmentLabel: 'memo-perubahan-akses-treasury.pdf',
     ),
     TaskItem(
       title: 'Approval Perjalanan Dinas Surabaya',
       requester: 'Aldo Permana',
       summary:
-          'Ticket notifikasi: budget sudah dikunci, tinggal konfirmasi transport dan hotel.',
-      statusLabel: 'Reminder',
-      priorityLabel: 'Urgent',
-      timeLabel: '35 menit lalu',
-      lane: TaskLane.notifications,
+          'Budget dan jadwal perjalanan sudah diverifikasi. Pengajuan tinggal menunggu approval direktur operasional.',
+      workflowLabel: 'Business Travel Request',
+      workflowStatus: TaskSubmissionStatus.pendingDirector,
+      priorityLabel: 'Hari ini',
+      timeLabel: '23 menit lalu',
+      lane: TaskLane.actionable,
       accentColor: AppColors.amber,
+      formFields: [
+        SubmissionField(label: 'Tujuan Perjalanan', value: 'Surabaya'),
+        SubmissionField(label: 'Tanggal Berangkat', value: '23 Apr 2026'),
+        SubmissionField(label: 'Tanggal Pulang', value: '25 Apr 2026'),
+        SubmissionField(label: 'Nominal Estimasi', value: 'Rp 4.750.000'),
+        SubmissionField(
+          label: 'Tujuan Bisnis',
+          value:
+              'Kunjungan vendor dan audit lokasi cabang untuk evaluasi operasional.',
+        ),
+      ],
+      requiresSignature: true,
+      attachmentLabel: 'travel-request-surabaya.pdf',
+    ),
+    TaskItem(
+      title: 'Vendor Onboarding Document Pack',
+      requester: 'Maya Finance Ops',
+      summary:
+          'Dokumen legal vendor sudah lengkap dan submission baru saja masuk ke sistem untuk diproses.',
+      workflowLabel: 'Vendor Onboarding',
+      workflowStatus: TaskSubmissionStatus.submitted,
+      priorityLabel: 'Normal',
+      timeLabel: '10 menit lalu',
+      lane: TaskLane.inProgress,
+      accentColor: AppColors.blue,
+      formFields: [
+        SubmissionField(
+          label: 'Nama Vendor',
+          value: 'PT Nusantara Facility Support',
+        ),
+        SubmissionField(label: 'PIC Vendor', value: 'Daniel Hartono'),
+        SubmissionField(label: 'NPWP', value: '01.883.221.4-054.000'),
+        SubmissionField(
+          label: 'Nomor Rekening',
+          value: 'BCA 8210550012 a.n. PT Nusantara Facility Support',
+        ),
+        SubmissionField(
+          label: 'Dokumen Legal',
+          value: 'NIB, NPWP, dan akta perubahan perusahaan sudah dilampirkan.',
+        ),
+      ],
+      attachmentLabel: 'vendor-document-pack.pdf',
     ),
     TaskItem(
       title: 'Pengadaan Monitor Analyst Room',
       requester: 'Niko IT Procurement',
       summary:
-          'Sedang diproses vendor dan menunggu ETA pengiriman dari distributor.',
-      statusLabel: 'In Progress',
-      priorityLabel: 'Tracked',
+          'Review direktur sudah selesai. Submission sedang diteruskan ke accounting untuk verifikasi invoice dan pembayaran.',
+      workflowLabel: 'Hardware/Software Procurement',
+      workflowStatus: TaskSubmissionStatus.pendingAccounting,
+      priorityLabel: 'Tinggi',
       timeLabel: 'Target selesai 22 Apr',
-      lane: TaskLane.ongoing,
+      lane: TaskLane.inProgress,
       accentColor: AppColors.emerald,
+      formFields: [
+        SubmissionField(
+          label: 'Nama Barang',
+          value: 'Monitor LG UltraWide 34-inch',
+        ),
+        SubmissionField(label: 'Tipe Barang', value: 'Hardware'),
+        SubmissionField(label: 'Jumlah', value: '6 unit'),
+        SubmissionField(
+          label: 'Spesifikasi',
+          value: 'QHD, USB-C, refresh rate 100 Hz, adjustable stand.',
+        ),
+        SubmissionField(
+          label: 'Kebutuhan Bisnis',
+          value:
+              'Meningkatkan visibilitas dashboard analis dan efisiensi kerja multi-screen.',
+        ),
+        SubmissionField(label: 'Dibutuhkan Sebelum', value: '22 Apr 2026'),
+        SubmissionField(label: 'Estimasi Biaya', value: 'Rp 72.000.000'),
+        SubmissionField(
+          label: 'Vendor / Referensi',
+          value: 'Datascrip Corporate',
+        ),
+      ],
+      attachmentLabel: 'quotation-monitor-analyst-room.pdf',
     ),
     TaskItem(
-      title: 'Reset Firewall Branch Office',
-      requester: 'IT Command Center',
+      title: 'Lisensi Bloomberg Anywhere',
+      requester: 'Intan Capital Market',
       summary:
-          'Troubleshooting berjalan, patch malam ini akan dijalankan oleh tim infra.',
-      statusLabel: 'Coordination',
-      priorityLabel: 'Urgent',
-      timeLabel: 'Monitoring live',
-      lane: TaskLane.ongoing,
+          'Kebutuhan lisensi sudah diverifikasi IT dan sekarang berada di antrean approval direktur.',
+      workflowLabel: 'Software Procurement',
+      workflowStatus: TaskSubmissionStatus.pendingDirector,
+      priorityLabel: 'Normal',
+      timeLabel: 'Hari ini, 09:10',
+      lane: TaskLane.inProgress,
+      accentColor: AppColors.goldDeep,
+      formFields: [
+        SubmissionField(
+          label: 'Nama Barang',
+          value: 'Bloomberg Anywhere License',
+        ),
+        SubmissionField(label: 'Tipe Barang', value: 'Software'),
+        SubmissionField(label: 'Jumlah', value: '3 lisensi'),
+        SubmissionField(
+          label: 'Spesifikasi',
+          value: 'Annual subscription dengan multi-device secure access.',
+        ),
+        SubmissionField(
+          label: 'Kebutuhan Bisnis',
+          value:
+              'Kebutuhan market intelligence dan terminal data untuk tim capital market.',
+        ),
+        SubmissionField(label: 'Dibutuhkan Sebelum', value: '30 Apr 2026'),
+        SubmissionField(label: 'Estimasi Biaya', value: 'Rp 186.000.000'),
+        SubmissionField(label: 'Vendor / Referensi', value: 'Bloomberg APAC'),
+      ],
+      requiresSignature: true,
+      attachmentLabel: 'proposal-bloomberg-anywhere.pdf',
+    ),
+    TaskItem(
+      title: 'Pembelian Docking Station Dealing Room',
+      requester: 'Niko IT Procurement',
+      summary:
+          'Pengajuan sudah selesai. Vendor menerima pembayaran dan perangkat sudah diterima oleh requester.',
+      workflowLabel: 'Hardware/Software Procurement',
+      workflowStatus: TaskSubmissionStatus.completed,
+      priorityLabel: 'Normal',
+      timeLabel: 'Kemarin, 16:40',
+      lane: TaskLane.history,
+      accentColor: AppColors.emerald,
+      formFields: [
+        SubmissionField(
+          label: 'Nama Barang',
+          value: 'Dell WD22TB4 Docking Station',
+        ),
+        SubmissionField(label: 'Tipe Barang', value: 'Hardware'),
+        SubmissionField(label: 'Jumlah', value: '8 unit'),
+        SubmissionField(
+          label: 'Spesifikasi',
+          value: 'Thunderbolt 4, dual 4K support, 180W power adapter.',
+        ),
+        SubmissionField(
+          label: 'Kebutuhan Bisnis',
+          value:
+              'Standarisasi setup workstation dan manajemen kabel di dealing room.',
+        ),
+        SubmissionField(label: 'Dibutuhkan Sebelum', value: '17 Apr 2026'),
+        SubmissionField(label: 'Estimasi Biaya', value: 'Rp 39.200.000'),
+        SubmissionField(
+          label: 'Vendor / Referensi',
+          value: 'Dell Authorized Reseller',
+        ),
+      ],
+      attachmentLabel: 'invoice-docking-station-dealing-room.pdf',
+    ),
+    TaskItem(
+      title: 'Pengajuan Tablet Visitor',
+      requester: 'Rani HRBP',
+      summary:
+          'Pengajuan tidak dilanjutkan karena kebutuhan belum disetujui di level direktur dan perlu revisi budget.',
+      workflowLabel: 'Asset Request',
+      workflowStatus: TaskSubmissionStatus.rejected,
+      priorityLabel: 'Normal',
+      timeLabel: '18 Apr 2026, 15:20',
+      lane: TaskLane.history,
       accentColor: AppColors.red,
+      formFields: [
+        SubmissionField(
+          label: 'Nama Barang',
+          value: 'Tablet Visitor Android 11-inch',
+        ),
+        SubmissionField(label: 'Jumlah', value: '4 unit'),
+        SubmissionField(
+          label: 'Unit Pengguna',
+          value: 'Front Office & Reception',
+        ),
+        SubmissionField(
+          label: 'Kebutuhan Bisnis',
+          value:
+              'Registrasi tamu dan digital sign-in di area penerimaan kantor pusat.',
+        ),
+        SubmissionField(label: 'Target Penggunaan', value: 'Mei 2026'),
+        SubmissionField(label: 'Estimasi Biaya', value: 'Rp 18.000.000'),
+      ],
+      rejectedAtStep: 3,
+      rejectionReason: 'Budget pengadaan belum sesuai prioritas kuartal ini.',
+      attachmentLabel: 'proposal-tablet-visitor.pdf',
     ),
   ];
 
@@ -764,86 +953,290 @@ class DemoData {
     ],
   };
 
-  static const List<SubmissionTimelineStep> submissionTimeline = [
-    SubmissionTimelineStep(
-      title: 'Pengajuan Dibuat',
-      actor: 'Requester',
-      statusLabel: 'Complete',
-      timeLabel: '17 Apr 2026, 08:12',
-      note:
-          'Form requisition dikirim lengkap dengan spesifikasi perangkat dan estimasi budget.',
-      accentColor: AppColors.emerald,
-      icon: Icons.outbox_rounded,
-    ),
-    SubmissionTimelineStep(
-      title: 'Review Kelayakan IT',
-      actor: 'IT Staff',
-      statusLabel: 'Complete',
-      timeLabel: '17 Apr 2026, 09:05',
-      note:
-          'Kebutuhan device diverifikasi dan dinyatakan layak untuk dilanjutkan.',
-      accentColor: AppColors.emerald,
-      icon: Icons.computer_rounded,
-      requiresSignature: true,
-    ),
-    SubmissionTimelineStep(
-      title: 'Persetujuan Direktur Operasional',
-      actor: 'Operational Director',
-      statusLabel: 'Complete',
-      timeLabel: '17 Apr 2026, 10:24',
-      note: 'Approval direktur diberikan untuk lanjut ke accounting.',
-      accentColor: AppColors.emerald,
-      icon: Icons.verified_user_rounded,
-      requiresSignature: true,
-    ),
-    SubmissionTimelineStep(
-      title: 'Proses Pembayaran Accounting',
-      actor: 'Accounting',
-      statusLabel: 'Complete',
-      timeLabel: '17 Apr 2026, 13:10',
-      note:
-          'Invoice vendor sudah diverifikasi dan pembayaran masuk ke tahap rekonsiliasi.',
-      accentColor: AppColors.emerald,
-      icon: Icons.receipt_long_rounded,
-    ),
-    SubmissionTimelineStep(
-      title: 'Konfirmasi Sudah Bayar',
-      actor: 'Accounting',
-      statusLabel: 'Active',
-      timeLabel: 'Sedang berjalan',
-      note:
-          'Konfirmasi referensi transfer dan tanda tangan digital dibutuhkan sebelum submission ditutup.',
-      accentColor: AppColors.goldDeep,
-      icon: Icons.payments_rounded,
-      requiresSignature: true,
-    ),
-    SubmissionTimelineStep(
-      title: 'Selesai',
-      actor: 'System',
-      statusLabel: 'Queued',
-      timeLabel: 'Menunggu step aktif selesai',
-      note:
-          'Workflow akan otomatis ditandai selesai setelah konfirmasi bayar disimpan.',
-      accentColor: AppColors.inkMuted,
-      icon: Icons.task_alt_rounded,
-    ),
+  static List<SubmissionField> submissionFieldsFor(TaskItem task) => [
+    ...task.formFields,
+    SubmissionField(label: 'Lampiran', value: task.attachmentLabel),
   ];
 
-  static const List<SubmissionField> submissionFields = [
-    SubmissionField(label: 'Nama barang', value: 'MacBook Pro 14-inch M4'),
-    SubmissionField(label: 'Qty', value: '2 unit'),
-    SubmissionField(label: 'Divisi', value: 'Internal Transformation Unit'),
-    SubmissionField(label: 'Budget owner', value: 'Corporate Operations'),
-    SubmissionField(
-      label: 'Kebutuhan bisnis',
-      value: 'Replacement device untuk analis dan product owner internal.',
-    ),
-    SubmissionField(
-      label: 'Target penggunaan',
-      value: 'Minggu ke-4 April 2026',
-    ),
-    SubmissionField(label: 'Attachment', value: 'quotation-apple-reseller.pdf'),
-  ];
+  static List<SubmissionTimelineStep> submissionTimelineFor(TaskItem task) {
+    final activeStep = _activeTimelineStep(task.workflowStatus);
+    final rejectedStep = task.workflowStatus == TaskSubmissionStatus.rejected
+        ? (task.rejectedAtStep ?? 3)
+        : null;
+
+    return List<SubmissionTimelineStep>.generate(6, (index) {
+      final stepNumber = index + 1;
+      final statusLabel = _timelineStatusLabel(
+        workflowStatus: task.workflowStatus,
+        stepNumber: stepNumber,
+        activeStep: activeStep,
+        rejectedStep: rejectedStep,
+      );
+
+      return SubmissionTimelineStep(
+        title: _timelineTitle(stepNumber),
+        actor: _timelineActor(stepNumber),
+        statusLabel: statusLabel,
+        timeLabel: _timelineTimeLabel(
+          task: task,
+          stepNumber: stepNumber,
+          statusLabel: statusLabel,
+        ),
+        note: _timelineNote(
+          task: task,
+          stepNumber: stepNumber,
+          statusLabel: statusLabel,
+        ),
+        accentColor: _timelineColor(task, statusLabel),
+        icon: _timelineIcon(stepNumber),
+        requiresSignature: _requiresTimelineSignature(
+          task: task,
+          stepNumber: stepNumber,
+          statusLabel: statusLabel,
+        ),
+      );
+    });
+  }
+
+  static int _activeTimelineStep(TaskSubmissionStatus workflowStatus) {
+    switch (workflowStatus) {
+      case TaskSubmissionStatus.submitted:
+      case TaskSubmissionStatus.pendingIt:
+        return 2;
+      case TaskSubmissionStatus.pendingDirector:
+        return 3;
+      case TaskSubmissionStatus.pendingAccounting:
+        return 4;
+      case TaskSubmissionStatus.pendingPayment:
+        return 5;
+      case TaskSubmissionStatus.completed:
+      case TaskSubmissionStatus.rejected:
+        return 0;
+    }
+  }
+
+  static String _timelineStatusLabel({
+    required TaskSubmissionStatus workflowStatus,
+    required int stepNumber,
+    required int activeStep,
+    int? rejectedStep,
+  }) {
+    if (workflowStatus == TaskSubmissionStatus.rejected) {
+      if (stepNumber < (rejectedStep ?? 0)) {
+        return 'Selesai';
+      }
+
+      if (stepNumber == rejectedStep) {
+        return 'Ditolak';
+      }
+
+      return 'Tidak lanjut';
+    }
+
+    if (workflowStatus == TaskSubmissionStatus.completed) {
+      return 'Selesai';
+    }
+
+    if (stepNumber < activeStep) {
+      return 'Selesai';
+    }
+
+    if (stepNumber == activeStep) {
+      return 'Aktif';
+    }
+
+    return 'Menunggu';
+  }
+
+  static String _timelineTitle(int stepNumber) {
+    switch (stepNumber) {
+      case 1:
+        return 'Pengajuan Dibuat';
+      case 2:
+        return 'Review Kelayakan IT';
+      case 3:
+        return 'Persetujuan Direktur Operasional';
+      case 4:
+        return 'Proses Pembayaran Accounting';
+      case 5:
+        return 'Konfirmasi Sudah Bayar';
+      case 6:
+        return 'Selesai';
+      default:
+        return 'Tahap';
+    }
+  }
+
+  static String _timelineActor(int stepNumber) {
+    switch (stepNumber) {
+      case 1:
+        return 'Requester';
+      case 2:
+        return 'IT Staff';
+      case 3:
+        return 'Operational Director';
+      case 4:
+      case 5:
+        return 'Accounting';
+      case 6:
+        return 'System';
+      default:
+        return 'System';
+    }
+  }
+
+  static IconData _timelineIcon(int stepNumber) {
+    switch (stepNumber) {
+      case 1:
+        return Icons.outbox_rounded;
+      case 2:
+        return Icons.computer_rounded;
+      case 3:
+        return Icons.verified_user_rounded;
+      case 4:
+        return Icons.receipt_long_rounded;
+      case 5:
+        return Icons.payments_rounded;
+      case 6:
+        return Icons.task_alt_rounded;
+      default:
+        return Icons.circle_rounded;
+    }
+  }
+
+  static String _timelineTimeLabel({
+    required TaskItem task,
+    required int stepNumber,
+    required String statusLabel,
+  }) {
+    if (statusLabel == 'Aktif' || statusLabel == 'Ditolak') {
+      return task.timeLabel;
+    }
+
+    if (statusLabel == 'Menunggu') {
+      return 'Menunggu tahap sebelumnya selesai';
+    }
+
+    if (statusLabel == 'Tidak lanjut') {
+      return 'Workflow dihentikan';
+    }
+
+    switch (stepNumber) {
+      case 1:
+        return '17 Apr 2026, 08:12';
+      case 2:
+        return '17 Apr 2026, 09:05';
+      case 3:
+        return '17 Apr 2026, 10:24';
+      case 4:
+        return '17 Apr 2026, 13:10';
+      case 5:
+        return task.workflowStatus == TaskSubmissionStatus.completed
+            ? '17 Apr 2026, 15:18'
+            : '17 Apr 2026, 13:10';
+      case 6:
+        return task.timeLabel;
+      default:
+        return task.timeLabel;
+    }
+  }
+
+  static String _timelineNote({
+    required TaskItem task,
+    required int stepNumber,
+    required String statusLabel,
+  }) {
+    if (statusLabel == 'Aktif') {
+      return task.summary;
+    }
+
+    if (statusLabel == 'Ditolak') {
+      return task.rejectionReason ??
+          'Pengajuan ditolak pada tahap ini dan perlu direvisi sebelum diajukan ulang.';
+    }
+
+    if (statusLabel == 'Tidak lanjut') {
+      return 'Workflow tidak dilanjutkan karena pengajuan sudah ditutup.';
+    }
+
+    if (statusLabel == 'Menunggu') {
+      switch (stepNumber) {
+        case 2:
+          return 'Pengajuan akan masuk ke review IT setelah berhasil dibuat.';
+        case 3:
+          return 'Menunggu review IT selesai sebelum naik ke direktur.';
+        case 4:
+          return 'Menunggu persetujuan direktur sebelum diteruskan ke accounting.';
+        case 5:
+          return 'Menunggu accounting menyelesaikan verifikasi pembayaran.';
+        case 6:
+          return 'Workflow akan ditutup otomatis setelah tahap aktif selesai.';
+        default:
+          return 'Menunggu tahapan sebelumnya selesai.';
+      }
+    }
+
+    switch (stepNumber) {
+      case 1:
+        return 'Pengajuan "${task.title}" dibuat oleh ${task.requester} dan masuk ke workflow ${task.workflowLabel}.';
+      case 2:
+        return 'Tim IT sudah menyelesaikan verifikasi kelayakan awal untuk pengajuan ini.';
+      case 3:
+        return 'Persetujuan direktur sudah diberikan agar workflow bisa diteruskan.';
+      case 4:
+        return 'Accounting sudah memverifikasi invoice dan kesiapan pembayaran.';
+      case 5:
+        return 'Konfirmasi pembayaran sudah tersimpan dan submission siap ditutup.';
+      case 6:
+        return 'Workflow selesai dan submission otomatis ditutup oleh sistem.';
+      default:
+        return task.summary;
+    }
+  }
+
+  static Color _timelineColor(TaskItem task, String statusLabel) {
+    switch (statusLabel) {
+      case 'Selesai':
+        return AppColors.emerald;
+      case 'Aktif':
+        return task.accentColor;
+      case 'Ditolak':
+        return AppColors.red;
+      case 'Menunggu':
+      case 'Tidak lanjut':
+        return AppColors.inkMuted;
+      default:
+        return AppColors.inkMuted;
+    }
+  }
+
+  static bool _requiresTimelineSignature({
+    required TaskItem task,
+    required int stepNumber,
+    required String statusLabel,
+  }) {
+    if (!task.requiresSignature) {
+      return false;
+    }
+
+    if (statusLabel == 'Menunggu' || statusLabel == 'Tidak lanjut') {
+      return false;
+    }
+
+    switch (task.workflowStatus) {
+      case TaskSubmissionStatus.pendingDirector:
+        return stepNumber == 3;
+      case TaskSubmissionStatus.pendingPayment:
+      case TaskSubmissionStatus.completed:
+        return stepNumber == 5;
+      case TaskSubmissionStatus.rejected:
+        return stepNumber == (task.rejectedAtStep ?? 3);
+      case TaskSubmissionStatus.submitted:
+      case TaskSubmissionStatus.pendingIt:
+      case TaskSubmissionStatus.pendingAccounting:
+        return false;
+    }
+  }
 
   static const List<KnowledgeShortcut> knowledgeShortcuts = [
     KnowledgeShortcut(
@@ -910,7 +1303,7 @@ class DemoData {
   static const List<ProfileShortcut> profileShortcuts = [
     ProfileShortcut(
       title: 'Approval Inbox',
-      subtitle: '8 action item masih aktif',
+      subtitle: 'Buka pengajuan yang perlu aksi',
       icon: Icons.fact_check_rounded,
       accentColor: AppColors.goldDeep,
     ),
@@ -1044,7 +1437,7 @@ class DemoData {
       List<GroupMember>.from(_members[id] ?? const []);
 
   static int get pendingApprovalCount =>
-      tasks.where((task) => task.lane == TaskLane.approvals).length;
+      tasks.where((task) => task.lane == TaskLane.actionable).length;
 
   static int get openHelpdeskCount => helpdeskTickets.length;
 

@@ -18,26 +18,27 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
   final TextEditingController _approvalNoteController = TextEditingController();
   bool _showProgressDetails = false;
 
-  List<SubmissionField> get _allSubmissionFields => DemoData.submissionFields;
+  List<SubmissionField> get _allSubmissionFields =>
+      DemoData.submissionFieldsFor(widget.task);
 
   List<SubmissionField> get _detailFields => _allSubmissionFields
-      .where((field) => field.label != 'Attachment')
+      .where((field) => field.label != 'Lampiran')
       .toList(growable: false);
 
   SubmissionField get _attachment => _allSubmissionFields.firstWhere(
-    (field) => field.label == 'Attachment',
+    (field) => field.label == 'Lampiran',
     orElse: () => const SubmissionField(
-      label: 'Attachment',
+      label: 'Lampiran',
       value: 'requisition-preview.pdf',
     ),
   );
 
   List<SubmissionTimelineStep> get _progressSteps =>
-      DemoData.submissionTimeline;
+      DemoData.submissionTimelineFor(widget.task);
 
   SubmissionTimelineStep? get _activeProgressStep {
     for (final step in _progressSteps) {
-      if (step.statusLabel.toLowerCase() == 'active') {
+      if (step.statusLabel.toLowerCase() == 'aktif') {
         return step;
       }
     }
@@ -52,13 +53,48 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
       _activeProgressStep?.title ?? widget.task.statusLabel;
 
   String get _progressSummary {
+    if (widget.task.workflowStatus == TaskSubmissionStatus.rejected) {
+      return '${_progressSteps.length} langkah • Workflow dihentikan';
+    }
+
     final activeStep = _activeProgressStep;
 
     if (activeStep != null) {
       return '${_progressSteps.length} langkah • Aktif: ${activeStep.title}';
     }
 
-    return '${_progressSteps.length} langkah • Semua step selesai';
+    return '${_progressSteps.length} langkah • Semua tahap selesai';
+  }
+
+  bool get _showsDecisionActions => widget.task.lane == TaskLane.actionable;
+
+  String get _statusCardEyebrow {
+    switch (widget.task.lane) {
+      case TaskLane.actionable:
+        return 'Perlu aksi';
+      case TaskLane.inProgress:
+        return 'Sedang diproses';
+      case TaskLane.history:
+        return 'Riwayat';
+    }
+  }
+
+  String get _statusCardDescription {
+    switch (widget.task.lane) {
+      case TaskLane.actionable:
+        return _currentStepRequiresSignature
+            ? 'Langkah ini membutuhkan tanda tangan digital sebelum approval selesai.'
+            : 'Langkah ini bisa diproses langsung tanpa tanda tangan tambahan.';
+      case TaskLane.inProgress:
+        return 'Pengajuan ini masih berjalan di workflow ${widget.task.workflowLabel} dan belum membutuhkan aksi dari Anda.';
+      case TaskLane.history:
+        if (widget.task.workflowStatus == TaskSubmissionStatus.completed) {
+          return 'Pengajuan ini sudah selesai dan tidak memerlukan tindak lanjut.';
+        }
+
+        return widget.task.rejectionReason ??
+            'Pengajuan ini ditutup pada salah satu tahap review dan perlu direvisi sebelum diajukan ulang.';
+    }
   }
 
   @override
@@ -98,9 +134,7 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text(
-          'UI approve action siap dihubungkan ke workflow backend.',
-        ),
+        content: Text('UI approval siap dihubungkan ke workflow backend.'),
       ),
     );
   }
@@ -117,7 +151,7 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('UI reject action siap dihubungkan ke workflow backend.'),
+        content: Text('UI penolakan siap dihubungkan ke workflow backend.'),
       ),
     );
   }
@@ -179,10 +213,6 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                                     label: widget.task.statusLabel,
                                     color: widget.task.accentColor,
                                   ),
-                                  StatusChip(
-                                    label: widget.task.priorityLabel,
-                                    color: AppColors.amber,
-                                  ),
                                 ],
                               ),
                             ),
@@ -211,15 +241,15 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                           runSpacing: 10,
                           children: [
                             _MetaTile(
-                              label: 'Requester',
+                              label: 'Pemohon',
                               value: widget.task.requester,
                             ),
                             _MetaTile(
                               label: 'Workflow',
-                              value: DemoData.forms.first.workflow,
+                              value: widget.task.workflowLabel,
                             ),
                             _MetaTile(
-                              label: 'Current Step',
+                              label: 'Tahap saat ini',
                               value: _currentActionTitle,
                             ),
                           ],
@@ -229,7 +259,7 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                Text('Details', style: textTheme.titleLarge),
+                Text('Detail', style: textTheme.titleLarge),
                 const SizedBox(height: 10),
                 RevealUp(
                   index: 2,
@@ -254,7 +284,7 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                Text('Attachment', style: textTheme.titleLarge),
+                Text('Lampiran', style: textTheme.titleLarge),
                 const SizedBox(height: 10),
                 RevealUp(
                   index: 3,
@@ -287,7 +317,7 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'PDF document',
+                                'Dokumen PDF',
                                 style: textTheme.bodySmall?.copyWith(
                                   color: AppColors.inkMuted,
                                 ),
@@ -306,14 +336,14 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                               ),
                             );
                           },
-                          child: const Text('Preview'),
+                          child: const Text('Pratinjau'),
                         ),
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 18),
-                Text('Action', style: textTheme.titleLarge),
+                Text('Status', style: textTheme.titleLarge),
                 const SizedBox(height: 10),
                 RevealUp(
                   index: 4,
@@ -323,7 +353,7 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Action Required',
+                          _statusCardEyebrow.toUpperCase(),
                           style: textTheme.labelSmall?.copyWith(
                             color: AppColors.goldDeep,
                             fontWeight: FontWeight.w800,
@@ -331,56 +361,69 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                           ),
                         ),
                         const SizedBox(height: 10),
-                        Text(_currentActionTitle, style: textTheme.titleLarge),
+                        Text(
+                          _showsDecisionActions
+                              ? _currentActionTitle
+                              : widget.task.statusLabel,
+                          style: textTheme.titleLarge,
+                        ),
                         const SizedBox(height: 6),
                         Text(
-                          _currentStepRequiresSignature
-                              ? 'Langkah ini membutuhkan tanda tangan digital sebelum approval selesai.'
-                              : 'Langkah ini bisa diproses langsung tanpa tanda tangan tambahan.',
+                          _statusCardDescription,
                           style: textTheme.bodyMedium,
                         ),
                         const SizedBox(height: 14),
-                        if (_currentStepRequiresSignature)
-                          const Padding(
-                            padding: EdgeInsets.only(bottom: 12),
-                            child: StatusChip(
-                              label: 'Signature Required',
-                              color: AppColors.red,
-                            ),
-                          ),
-                        Text('Approval note', style: textTheme.titleMedium),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _approvalNoteController,
-                          maxLines: 3,
-                          decoration: const InputDecoration(
-                            hintText: 'Tambahkan catatan jika diperlukan',
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: _handleRejectPressed,
-                                child: const Text('Reject'),
+                        if (_showsDecisionActions) ...[
+                          if (_currentStepRequiresSignature)
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 12),
+                              child: StatusChip(
+                                label: 'Tanda tangan digital',
+                                color: AppColors.red,
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: FilledButton(
-                                onPressed: _handleApprovePressed,
-                                child: const Text('Approve'),
-                              ),
+                          Text(
+                            'Catatan approval',
+                            style: textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _approvalNoteController,
+                            maxLines: 3,
+                            decoration: const InputDecoration(
+                              hintText: 'Tambahkan catatan jika diperlukan',
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: _handleRejectPressed,
+                                  child: const Text('Tolak'),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed: _handleApprovePressed,
+                                  child: const Text('Setujui'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ] else ...[
+                          StatusChip(
+                            label: widget.task.lane.label,
+                            color: widget.task.accentColor,
+                          ),
+                        ],
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 18),
-                Text('Progress', style: textTheme.titleLarge),
+                Text('Progress Workflow', style: textTheme.titleLarge),
                 const SizedBox(height: 10),
                 RevealUp(
                   index: 5,
@@ -396,7 +439,7 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Workflow Progress',
+                                    'Progress workflow',
                                     style: textTheme.titleMedium,
                                   ),
                                   const SizedBox(height: 4),
@@ -503,7 +546,8 @@ class _TimelineRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final connectorColor = step.statusLabel == 'Queued'
+    final connectorColor =
+        step.statusLabel == 'Menunggu' || step.statusLabel == 'Tidak lanjut'
         ? AppColors.border
         : step.accentColor.withValues(alpha: 0.24);
 
@@ -550,7 +594,7 @@ class _TimelineRow extends StatelessWidget {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
-                      'Step $index',
+                      'Tahap $index',
                       style: textTheme.labelSmall?.copyWith(
                         color: AppColors.inkMuted,
                         fontWeight: FontWeight.w800,

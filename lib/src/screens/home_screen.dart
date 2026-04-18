@@ -200,7 +200,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: _CompactStatusCard(
                   title: 'Task',
                   value: '$pendingApprovalCount',
-                  subtitle: 'Pengajuan baru',
+                  subtitle: 'Perlu aksi',
                   icon: Icons.fact_check_rounded,
                   accentColor: AppColors.blue,
                   onTap: widget.onOpenTasks,
