@@ -15,12 +15,16 @@ class HomeScreen extends StatefulWidget {
     required this.onOpenForms,
     required this.onOpenAiAssist,
     required this.onOpenHelpdesk,
+    required this.onOpenNotifications,
+    required this.unreadNotificationCount,
   });
 
   final VoidCallback onOpenTasks;
   final VoidCallback onOpenForms;
   final VoidCallback onOpenAiAssist;
   final VoidCallback onOpenHelpdesk;
+  final VoidCallback onOpenNotifications;
+  final int unreadNotificationCount;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -71,6 +75,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   height: 30,
                 ),
                 const Spacer(),
+                _NotificationButton(
+                  unreadCount: widget.unreadNotificationCount,
+                  onTap: widget.onOpenNotifications,
+                ),
+                const SizedBox(width: 10),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -211,6 +220,73 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _NotificationButton extends StatelessWidget {
+  const _NotificationButton({required this.unreadCount, required this.onTap});
+
+  final int unreadCount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasUnread = unreadCount > 0;
+    final badgeLabel = unreadCount > 9 ? '9+' : '$unreadCount';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: hasUnread ? AppColors.goldSoft : AppColors.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: hasUnread ? AppColors.borderStrong : AppColors.border,
+            ),
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Center(
+                child: Icon(
+                  Icons.notifications_none_rounded,
+                  color: AppColors.ink,
+                ),
+              ),
+              if (hasUnread)
+                Positioned(
+                  top: 8,
+                  right: 7,
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 20),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.red,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      badgeLabel,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

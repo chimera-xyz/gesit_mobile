@@ -6,6 +6,26 @@ enum MessageDelivery { sending, delivered, read }
 
 enum FormFieldType { text, multiline, select, date, file, number, email }
 
+enum AppNotificationType {
+  approval,
+  submission,
+  helpdesk,
+  system,
+  knowledge,
+  chat,
+  call,
+}
+
+enum NotificationDestination {
+  none,
+  tasks,
+  forms,
+  helpdesk,
+  chat,
+  knowledgeHub,
+  profile,
+}
+
 class DashboardStat {
   const DashboardStat({
     required this.label,
@@ -34,6 +54,97 @@ class QuickActionItem {
   final String subtitle;
   final IconData icon;
   final Color accentColor;
+}
+
+class AppNotification {
+  const AppNotification({
+    required this.id,
+    required this.title,
+    required this.message,
+    required this.detail,
+    required this.type,
+    required this.createdAt,
+    this.isRead = false,
+    this.storesInCenter = true,
+    this.destination = NotificationDestination.none,
+    this.primaryActionLabel,
+  });
+
+  final String id;
+  final String title;
+  final String message;
+  final String detail;
+  final AppNotificationType type;
+  final DateTime createdAt;
+  final bool isRead;
+  final bool storesInCenter;
+  final NotificationDestination destination;
+  final String? primaryActionLabel;
+
+  AppNotification copyWith({
+    String? id,
+    String? title,
+    String? message,
+    String? detail,
+    AppNotificationType? type,
+    DateTime? createdAt,
+    bool? isRead,
+    bool? storesInCenter,
+    NotificationDestination? destination,
+    String? primaryActionLabel,
+  }) {
+    return AppNotification(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      message: message ?? this.message,
+      detail: detail ?? this.detail,
+      type: type ?? this.type,
+      createdAt: createdAt ?? this.createdAt,
+      isRead: isRead ?? this.isRead,
+      storesInCenter: storesInCenter ?? this.storesInCenter,
+      destination: destination ?? this.destination,
+      primaryActionLabel: primaryActionLabel ?? this.primaryActionLabel,
+    );
+  }
+}
+
+class ScheduledNotification {
+  const ScheduledNotification({
+    required this.id,
+    required this.delay,
+    required this.title,
+    required this.message,
+    required this.detail,
+    required this.type,
+    this.storesInCenter = true,
+    this.destination = NotificationDestination.none,
+    this.primaryActionLabel,
+  });
+
+  final String id;
+  final Duration delay;
+  final String title;
+  final String message;
+  final String detail;
+  final AppNotificationType type;
+  final bool storesInCenter;
+  final NotificationDestination destination;
+  final String? primaryActionLabel;
+
+  AppNotification materialize({DateTime? now}) {
+    return AppNotification(
+      id: id,
+      title: title,
+      message: message,
+      detail: detail,
+      type: type,
+      createdAt: now ?? DateTime.now(),
+      isRead: false,
+      storesInCenter: storesInCenter,
+      destination: destination,
+      primaryActionLabel: primaryActionLabel,
+    );
+  }
 }
 
 class TaskItem {

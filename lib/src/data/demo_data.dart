@@ -934,6 +934,109 @@ class DemoData {
     ),
   ];
 
+  static List<AppNotification> seedNotifications() {
+    final now = DateTime.now();
+
+    return [
+      AppNotification(
+        id: 'notif-approval-01',
+        title: 'Approval baru menunggu review',
+        message: 'Pengadaan laptop trading desk sudah masuk ke approval inbox.',
+        detail:
+            'Pengajuan procurement untuk laptop trading desk sudah masuk ke approval inbox Anda. Estimasi biaya dan lampiran vendor sudah lengkap, jadi item ini siap direview tanpa perlu follow up tambahan.',
+        type: AppNotificationType.approval,
+        createdAt: now.subtract(const Duration(minutes: 4)),
+        destination: NotificationDestination.tasks,
+        primaryActionLabel: 'Buka approval',
+      ),
+      AppNotification(
+        id: 'notif-helpdesk-01',
+        title: 'Ticket helpdesk diperbarui',
+        message: 'Wi-Fi Trading Floor sudah diambil oleh tim network.',
+        detail:
+            'Ticket HD-2026-084 untuk gangguan Wi-Fi Trading Floor sudah di-assign ke IT Network. Investigasi sedang berjalan dan update berikutnya akan dikirim setelah pengecekan access point selesai.',
+        type: AppNotificationType.helpdesk,
+        createdAt: now.subtract(const Duration(minutes: 19)),
+        destination: NotificationDestination.helpdesk,
+        primaryActionLabel: 'Buka helpdesk',
+      ),
+      AppNotification(
+        id: 'notif-system-01',
+        title: 'Maintenance S21+ malam ini',
+        message: 'Jadwal maintenance dimulai pukul 22.00 WIB selama 45 menit.',
+        detail:
+            'Maintenance S21+ dijadwalkan mulai pukul 22.00 WIB dengan estimasi downtime maksimal 45 menit. Aktivitas approval yang belum mendesak sebaiknya diselesaikan sebelum window maintenance dimulai.',
+        type: AppNotificationType.system,
+        createdAt: now.subtract(const Duration(hours: 1, minutes: 36)),
+        isRead: true,
+      ),
+      AppNotification(
+        id: 'notif-knowledge-01',
+        title: 'SOP vendor onboarding direvisi',
+        message:
+            'Checklist legal dan finance sudah diperbarui di Knowledge Hub.',
+        detail:
+            'Dokumen SOP vendor onboarding telah diperbarui dengan checklist legal dan finance terbaru. Revisi ini dipublikasikan agar proses review vendor baru lebih seragam di semua unit kerja.',
+        type: AppNotificationType.knowledge,
+        createdAt: now.subtract(const Duration(hours: 3, minutes: 12)),
+        destination: NotificationDestination.knowledgeHub,
+        primaryActionLabel: 'Buka Knowledge Hub',
+      ),
+    ];
+  }
+
+  static List<ScheduledNotification> seedIncomingNotifications() {
+    return const [
+      ScheduledNotification(
+        id: 'notif-live-approval-01',
+        delay: Duration(seconds: 7),
+        title: 'Aktivitas baru masuk',
+        message: 'Approval perjalanan dinas Surabaya butuh konfirmasi Anda.',
+        detail:
+            'Approval perjalanan dinas Surabaya baru saja masuk dan membutuhkan konfirmasi Anda. Budget sudah tervalidasi, sehingga langkah berikutnya tinggal review final untuk transport dan hotel.',
+        type: AppNotificationType.submission,
+        destination: NotificationDestination.tasks,
+        primaryActionLabel: 'Buka inbox',
+      ),
+      ScheduledNotification(
+        id: 'notif-live-chat-01',
+        delay: Duration(seconds: 12),
+        title: 'Pesan masuk',
+        message: 'Approval Board: dokumen legal vendor sudah diunggah.',
+        detail:
+            'Approval Board baru saja mengirim pesan bahwa dokumen legal vendor versi terbaru sudah diunggah ke thread grup. Buka chat untuk melihat lampiran dan catatan tambahan dari tim terkait.',
+        type: AppNotificationType.chat,
+        storesInCenter: false,
+        destination: NotificationDestination.chat,
+        primaryActionLabel: 'Buka chat',
+      ),
+      ScheduledNotification(
+        id: 'notif-live-helpdesk-01',
+        delay: Duration(seconds: 18),
+        title: 'Update helpdesk baru',
+        message:
+            'Ticket Wi-Fi Trading Floor dipindahkan ke status In Progress.',
+        detail:
+            'Ticket HD-2026-084 baru saja berpindah ke status In Progress. Tim network sudah memulai pengecekan access point utama dan menyiapkan fallback agar koneksi dealing room tetap stabil.',
+        type: AppNotificationType.helpdesk,
+        destination: NotificationDestination.helpdesk,
+        primaryActionLabel: 'Lihat ticket',
+      ),
+      ScheduledNotification(
+        id: 'notif-live-call-01',
+        delay: Duration(seconds: 27),
+        title: 'Panggilan masuk',
+        message: 'IT Command Center mencoba menghubungi Anda.',
+        detail:
+            'IT Command Center sedang mencoba menghubungi Anda dari menu chat internal. Buka chat untuk menjawab panggilan atau melihat detail percakapan yang sedang berjalan.',
+        type: AppNotificationType.call,
+        storesInCenter: false,
+        destination: NotificationDestination.chat,
+        primaryActionLabel: 'Buka chat',
+      ),
+    ];
+  }
+
   static List<ChatMessage> messagesFor(String id) =>
       List<ChatMessage>.from(_messages[id] ?? const []);
 
