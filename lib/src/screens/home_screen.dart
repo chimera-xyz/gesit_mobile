@@ -11,16 +11,36 @@ import '../widgets/brand_widgets.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
+    required this.userName,
+    required this.userInitials,
+    required this.userRoleLabel,
+    required this.activeFormCount,
+    required this.pendingActionCount,
+    required this.canOpenTasks,
+    required this.canOpenForms,
+    required this.canOpenHelpdesk,
+    required this.canOpenChat,
     required this.onOpenTasks,
     required this.onOpenForms,
+    required this.onOpenChat,
     required this.onOpenAiAssist,
     required this.onOpenHelpdesk,
     required this.onOpenNotifications,
     required this.unreadNotificationCount,
   });
 
+  final String userName;
+  final String userInitials;
+  final String userRoleLabel;
+  final int activeFormCount;
+  final int pendingActionCount;
+  final bool canOpenTasks;
+  final bool canOpenForms;
+  final bool canOpenHelpdesk;
+  final bool canOpenChat;
   final VoidCallback onOpenTasks;
   final VoidCallback onOpenForms;
+  final VoidCallback onOpenChat;
   final VoidCallback onOpenAiAssist;
   final VoidCallback onOpenHelpdesk;
   final VoidCallback onOpenNotifications;
@@ -57,9 +77,59 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final pendingApprovalCount = DemoData.pendingApprovalCount;
     final today = DateFormat('EEEE, d MMM yyyy', 'id_ID').format(_now);
     final currentTime = DateFormat('HH:mm:ss', 'id_ID').format(_now);
+    final firstName = widget.userName
+        .trim()
+        .split(RegExp(r'\s+'))
+        .firstWhere((part) => part.isNotEmpty, orElse: () => 'User');
+    final statusCards = <Widget>[
+      if (widget.canOpenForms)
+        Expanded(
+          child: _CompactStatusCard(
+            title: 'Form Aktif',
+            value: '${widget.activeFormCount}',
+            subtitle: 'Tersedia',
+            icon: Icons.description_rounded,
+            accentColor: AppColors.goldDeep,
+            onTap: widget.onOpenForms,
+          ),
+        ),
+      if (widget.canOpenTasks)
+        Expanded(
+          child: _CompactStatusCard(
+            title: 'Task',
+            value: '${widget.pendingActionCount}',
+            subtitle: 'Perlu aksi',
+            icon: Icons.fact_check_rounded,
+            accentColor: AppColors.blue,
+            onTap: widget.onOpenTasks,
+          ),
+        ),
+      if (widget.canOpenHelpdesk)
+        Expanded(
+          child: _CompactStatusCard(
+            title: 'Helpdesk',
+            value: '${DemoData.openHelpdeskCount}',
+            subtitle: 'Open',
+            icon: Icons.support_agent_rounded,
+            accentColor: AppColors.red,
+            onTap: widget.onOpenHelpdesk,
+          ),
+        ),
+      if (widget.canOpenChat)
+        Expanded(
+          child: _CompactStatusCard(
+            title: 'Chat',
+            value: '${DemoData.unreadChatCount}',
+            subtitle: 'Belum dibaca',
+            icon: Icons.forum_rounded,
+            accentColor: AppColors.emerald,
+            onTap: widget.onOpenChat,
+          ),
+        ),
+    ];
+    final visibleStatusCards = statusCards.take(3).toList(growable: false);
 
     return SingleChildScrollView(
       physics: const ClampingScrollPhysics(),
@@ -104,7 +174,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         alignment: Alignment.center,
                         child: Text(
-                          'RC',
+                          widget.userInitials,
                           style: textTheme.titleMedium?.copyWith(
                             color: Colors.white,
                           ),
@@ -114,12 +184,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          Text(firstName, style: textTheme.labelLarge),
                           Text(
-                            DemoData.userName.split(' ').first,
-                            style: textTheme.labelLarge,
-                          ),
-                          Text(
-                            'Internal',
+                            widget.userRoleLabel,
                             style: textTheme.bodySmall?.copyWith(
                               color: AppColors.inkSoft,
                             ),
@@ -141,7 +208,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Selamat datang, ${DemoData.userName.split(' ').first}.',
+                    'Selamat datang, $firstName.',
                     style: textTheme.headlineMedium?.copyWith(fontSize: 30),
                   ),
                   const SizedBox(height: 14),
@@ -157,17 +224,30 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 18),
-                  Row(
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
                     children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: widget.onOpenTasks,
-                          icon: const Icon(Icons.fact_check_rounded),
-                          label: const Text('Tasks'),
+                      if (widget.canOpenTasks)
+                        SizedBox(
+                          width: 164,
+                          child: FilledButton.icon(
+                            onPressed: widget.onOpenTasks,
+                            icon: const Icon(Icons.fact_check_rounded),
+                            label: const Text('Tasks'),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
+                      if (widget.canOpenForms)
+                        SizedBox(
+                          width: 164,
+                          child: OutlinedButton.icon(
+                            onPressed: widget.onOpenForms,
+                            icon: const Icon(Icons.description_rounded),
+                            label: const Text('Forms'),
+                          ),
+                        ),
+                      SizedBox(
+                        width: 164,
                         child: OutlinedButton.icon(
                           onPressed: widget.onOpenAiAssist,
                           icon: const Icon(Icons.auto_awesome_rounded),
@@ -183,42 +263,19 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 24),
           const SectionHeader(eyebrow: 'Status', title: 'Today'),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _CompactStatusCard(
-                  title: 'Form Aktif',
-                  value: '${DemoData.activeFormCount}',
-                  subtitle: 'Tersedia',
-                  icon: Icons.description_rounded,
-                  accentColor: AppColors.goldDeep,
-                  onTap: widget.onOpenForms,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _CompactStatusCard(
-                  title: 'Task',
-                  value: '$pendingApprovalCount',
-                  subtitle: 'Perlu aksi',
-                  icon: Icons.fact_check_rounded,
-                  accentColor: AppColors.blue,
-                  onTap: widget.onOpenTasks,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _CompactStatusCard(
-                  title: 'Helpdesk',
-                  value: '${DemoData.openHelpdeskCount}',
-                  subtitle: 'Open',
-                  icon: Icons.support_agent_rounded,
-                  accentColor: AppColors.red,
-                  onTap: widget.onOpenHelpdesk,
-                ),
-              ),
-            ],
-          ),
+          if (visibleStatusCards.isNotEmpty)
+            Row(
+              children: [
+                for (
+                  var index = 0;
+                  index < visibleStatusCards.length;
+                  index++
+                ) ...[
+                  if (index > 0) const SizedBox(width: 12),
+                  visibleStatusCards[index],
+                ],
+              ],
+            ),
         ],
       ),
     );

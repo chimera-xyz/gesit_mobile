@@ -310,12 +310,14 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_chatScrollController.hasClients) {
+      if (!_chatScrollController.hasClients ||
+          _chatScrollController.positions.isEmpty) {
         return;
       }
 
+      final targetPosition = _chatScrollController.positions.last;
       _chatScrollController.animateTo(
-        _chatScrollController.position.maxScrollExtent + 180,
+        targetPosition.maxScrollExtent + 180,
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
       );

@@ -8,12 +8,26 @@ import '../widgets/brand_widgets.dart';
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({
     super.key,
+    required this.userName,
+    required this.userInitials,
+    required this.userRoleLabel,
+    required this.userDivisionLabel,
+    required this.canOpenTasks,
+    required this.canOpenKnowledgeHub,
+    required this.canOpenHelpdesk,
     required this.onOpenTasks,
     required this.onOpenKnowledgeHub,
     required this.onOpenHelpdesk,
     required this.onLogout,
   });
 
+  final String userName;
+  final String userInitials;
+  final String userRoleLabel;
+  final String userDivisionLabel;
+  final bool canOpenTasks;
+  final bool canOpenKnowledgeHub;
+  final bool canOpenHelpdesk;
   final VoidCallback onOpenTasks;
   final VoidCallback onOpenKnowledgeHub;
   final VoidCallback onOpenHelpdesk;
@@ -22,6 +36,16 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final profileShortcuts = DemoData.profileShortcuts
+        .where((item) {
+          return switch (item.title) {
+            'Approval Inbox' => canOpenTasks,
+            'Knowledge Hub' => canOpenKnowledgeHub,
+            'IT Helpdesk' => canOpenHelpdesk,
+            _ => true,
+          };
+        })
+        .toList(growable: false);
 
     return SingleChildScrollView(
       physics: const ClampingScrollPhysics(),
@@ -48,7 +72,7 @@ class ProfileScreen extends StatelessWidget {
                         ),
                         alignment: Alignment.center,
                         child: Text(
-                          'RC',
+                          userInitials,
                           style: textTheme.headlineMedium?.copyWith(
                             color: Colors.white,
                           ),
@@ -59,18 +83,12 @@ class ProfileScreen extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              DemoData.userName,
-                              style: textTheme.titleLarge,
-                            ),
+                            Text(userName, style: textTheme.titleLarge),
                             const SizedBox(height: 4),
-                            Text(
-                              DemoData.userRole,
-                              style: textTheme.bodyMedium,
-                            ),
+                            Text(userRoleLabel, style: textTheme.bodyMedium),
                             const SizedBox(height: 2),
                             Text(
-                              DemoData.userDivision,
+                              userDivisionLabel,
                               style: textTheme.bodySmall?.copyWith(
                                 color: AppColors.inkMuted,
                               ),
@@ -99,7 +117,7 @@ class ProfileScreen extends StatelessWidget {
           const SizedBox(height: 22),
           const SectionHeader(eyebrow: 'Menu', title: 'Account'),
           const SizedBox(height: 14),
-          ...DemoData.profileShortcuts.asMap().entries.map((entry) {
+          ...profileShortcuts.asMap().entries.map((entry) {
             final index = entry.key;
             final item = entry.value;
             return Padding(
@@ -137,14 +155,15 @@ class ProfileScreen extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: onOpenHelpdesk,
-                  icon: const Icon(Icons.support_agent_rounded),
-                  label: const Text('Helpdesk'),
+              if (canOpenHelpdesk)
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onOpenHelpdesk,
+                    icon: const Icon(Icons.support_agent_rounded),
+                    label: const Text('Helpdesk'),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
+              if (canOpenHelpdesk) const SizedBox(width: 10),
               Expanded(
                 child: FilledButton.icon(
                   onPressed: onLogout,

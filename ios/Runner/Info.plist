@@ -43,6 +43,12 @@
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>GESIT membutuhkan akses kamera untuk mengirim foto di chat.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>GESIT menggunakan Face ID untuk login cepat yang aman di perangkat ini.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>GESIT membutuhkan akses mikrofon untuk merekam voice note di chat.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 </dict>

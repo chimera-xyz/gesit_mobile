@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 
-import '../data/demo_data.dart';
+import '../data/workspace_data_controller.dart';
 import '../models/app_models.dart';
 import '../screens/form_submission_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
 
 class FormsScreen extends StatefulWidget {
-  const FormsScreen({super.key});
+  const FormsScreen({super.key, required this.controller});
+
+  final WorkspaceDataController controller;
 
   @override
   State<FormsScreen> createState() => _FormsScreenState();
@@ -24,80 +26,123 @@ class _FormsScreenState extends State<FormsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final categories = <String>{
-      'Semua',
-      ...DemoData.forms.map((form) => form.category),
-    };
-    final query = _searchController.text.trim().toLowerCase();
-    final filteredForms = DemoData.forms.where((form) {
-      final matchesCategory =
-          _selectedCategory == 'Semua' || form.category == _selectedCategory;
-      final matchesQuery =
-          query.isEmpty ||
-          form.title.toLowerCase().contains(query) ||
-          form.workflow.toLowerCase().contains(query) ||
-          form.description.toLowerCase().contains(query) ||
-          form.tags.any((tag) => tag.toLowerCase().contains(query));
-      return matchesCategory && matchesQuery;
-    }).toList();
+  void initState() {
+    super.initState();
+    if (!widget.controller.formsLoaded && !widget.controller.formsLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.controller.refreshForms();
+      });
+    }
+  }
 
-    return SingleChildScrollView(
-      physics: const ClampingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, kBottomBarInset),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          RevealUp(child: Text('Forms', style: textTheme.headlineMedium)),
-          const SizedBox(height: 14),
-          AppSearchField(
-            controller: _searchController,
-            hintText: 'Cari form atau workflow',
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: 14),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const ClampingScrollPhysics(),
-            child: Row(
-              children: [
-                for (final category in categories) ...[
-                  FilterPill(
-                    label: category,
-                    selected: _selectedCategory == category,
-                    onTap: () => setState(() => _selectedCategory = category),
-                  ),
-                  const SizedBox(width: 10),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          if (filteredForms.isEmpty)
-            BrandSurface(
-              padding: const EdgeInsets.all(18),
-              child: Text(
-                'Belum ada form yang cocok dengan pencarian atau kategori ini.',
-                style: textTheme.bodyMedium,
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        final textTheme = Theme.of(context).textTheme;
+        final forms = widget.controller.forms;
+        final categories = <String>{
+          'Semua',
+          ...forms.map((form) => form.category),
+        };
+        final query = _searchController.text.trim().toLowerCase();
+        final filteredForms = forms
+            .where((form) {
+              final matchesCategory =
+                  _selectedCategory == 'Semua' ||
+                  form.category == _selectedCategory;
+              final matchesQuery =
+                  query.isEmpty ||
+                  form.title.toLowerCase().contains(query) ||
+                  form.workflow.toLowerCase().contains(query) ||
+                  form.description.toLowerCase().contains(query) ||
+                  form.tags.any((tag) => tag.toLowerCase().contains(query));
+              return matchesCategory && matchesQuery;
+            })
+            .toList(growable: false);
+
+        return SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, kBottomBarInset),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              RevealUp(child: Text('Forms', style: textTheme.headlineMedium)),
+              const SizedBox(height: 14),
+              AppSearchField(
+                controller: _searchController,
+                hintText: 'Cari form atau workflow',
+                onChanged: (_) => setState(() {}),
               ),
-            )
-          else
-            for (var index = 0; index < filteredForms.length; index++) ...[
-              RevealUp(
-                index: index + 1,
-                child: _FormListCard(
-                  form: filteredForms[index],
-                  onTap: () => pushBrandedRoute(
-                    context,
-                    FormSubmissionScreen(form: filteredForms[index]),
-                  ),
+              const SizedBox(height: 14),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const ClampingScrollPhysics(),
+                child: Row(
+                  children: [
+                    for (final category in categories) ...[
+                      FilterPill(
+                        label: category,
+                        selected: _selectedCategory == category,
+                        onTap: () =>
+                            setState(() => _selectedCategory = category),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                  ],
                 ),
               ),
-              if (index != filteredForms.length - 1) const SizedBox(height: 12),
+              if (widget.controller.formsError != null) ...[
+                const SizedBox(height: 14),
+                BrandSurface(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    widget.controller.usingFallbackForms
+                        ? 'Server forms belum siap. Menampilkan data cadangan.'
+                        : widget.controller.formsError!,
+                    style: textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+              if (widget.controller.formsLoading && forms.isEmpty)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 28),
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              else if (filteredForms.isEmpty)
+                BrandSurface(
+                  padding: const EdgeInsets.all(18),
+                  child: Text(
+                    'Belum ada form yang cocok dengan pencarian atau kategori ini.',
+                    style: textTheme.bodyMedium,
+                  ),
+                )
+              else
+                for (var index = 0; index < filteredForms.length; index++) ...[
+                  RevealUp(
+                    index: index + 1,
+                    child: _FormListCard(
+                      form: filteredForms[index],
+                      onTap: () => pushBrandedRoute(
+                        context,
+                        FormSubmissionScreen(
+                          form: filteredForms[index],
+                          controller: widget.controller,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (index != filteredForms.length - 1)
+                    const SizedBox(height: 12),
+                ],
             ],
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 }

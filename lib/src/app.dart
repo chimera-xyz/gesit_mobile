@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'data/session_store.dart';
+import 'data/app_session_controller.dart';
+import 'data/gesit_api_client.dart';
 import 'navigation/gesit_shell.dart';
 import 'screens/login_screen.dart';
 import 'screens/opening_screen.dart';
 import 'theme/app_theme.dart';
+import 'widgets/app_session_scope.dart';
 
 class GesitApp extends StatefulWidget {
   const GesitApp({super.key});
@@ -15,13 +17,14 @@ class GesitApp extends StatefulWidget {
 }
 
 class _GesitAppState extends State<GesitApp> {
-  bool? _authenticated;
+  late final AppSessionController _sessionController;
   bool _openingComplete = false;
 
   @override
   void initState() {
     super.initState();
-    _restoreSession();
+    _sessionController = AppSessionController(apiClient: GesitApiClient())
+      ..bootstrap();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
@@ -34,19 +37,10 @@ class _GesitAppState extends State<GesitApp> {
     );
   }
 
-  Future<void> _restoreSession() async {
-    final authenticated = await SessionStore.readAuthenticated();
-    if (!mounted) {
-      return;
-    }
-    setState(() => _authenticated = authenticated);
-  }
-
-  Future<void> _setAuthenticated(bool value) async {
-    if (mounted) {
-      setState(() => _authenticated = value);
-    }
-    await SessionStore.writeAuthenticated(value);
+  @override
+  void dispose() {
+    _sessionController.dispose();
+    super.dispose();
   }
 
   void _handleOpeningComplete() {
@@ -59,64 +53,69 @@ class _GesitAppState extends State<GesitApp> {
 
   @override
   Widget build(BuildContext context) {
-    final Widget currentScreen;
+    return AnimatedBuilder(
+      animation: _sessionController,
+      builder: (context, _) {
+        final Widget currentScreen;
+        final nextLabel = switch (_sessionController.status) {
+          AppSessionStatus.bootstrapping => 'Menyelaraskan sesi kerja',
+          AppSessionStatus.authenticated => 'Membuka workspace',
+          AppSessionStatus.unauthenticated => 'Membuka halaman login',
+        };
 
-    if (!_openingComplete || _authenticated == null) {
-      currentScreen = OpeningScreen(
-        key: const ValueKey('opening'),
-        nextLabel: _authenticated == null
-            ? null
-            : _authenticated!
-            ? 'Membuka dashboard'
-            : 'Membuka halaman login',
-        onFinished: _handleOpeningComplete,
-      );
-    } else if (_authenticated!) {
-      currentScreen = GesitShell(
-        key: const ValueKey('shell'),
-        onLogout: () {
-          _setAuthenticated(false);
-        },
-      );
-    } else {
-      currentScreen = LoginScreen(
-        key: const ValueKey('login'),
-        onContinue: () {
-          _setAuthenticated(true);
-        },
-      );
-    }
+        if (!_openingComplete || _sessionController.isBootstrapping) {
+          currentScreen = OpeningScreen(
+            key: const ValueKey('opening'),
+            nextLabel: nextLabel,
+            onFinished: _handleOpeningComplete,
+          );
+        } else if (_sessionController.isAuthenticated) {
+          currentScreen = GesitShell(
+            key: const ValueKey('shell'),
+            sessionController: _sessionController,
+          );
+        } else {
+          currentScreen = LoginScreen(
+            key: const ValueKey('login'),
+            sessionController: _sessionController,
+          );
+        }
 
-    return MaterialApp(
-      title: 'GESIT',
-      debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(),
-      scrollBehavior: const _GesitScrollBehavior(),
-      builder: (context, child) {
-        final mediaQuery = MediaQuery.of(context);
-        final clampedScale = mediaQuery.textScaler.clamp(
-          minScaleFactor: 0.95,
-          maxScaleFactor: 1.05,
-        );
+        return AppSessionScope(
+          notifier: _sessionController,
+          child: MaterialApp(
+            title: 'GESIT',
+            debugShowCheckedModeBanner: false,
+            theme: buildAppTheme(),
+            scrollBehavior: const _GesitScrollBehavior(),
+            builder: (context, child) {
+              final mediaQuery = MediaQuery.of(context);
+              final clampedScale = mediaQuery.textScaler.clamp(
+                minScaleFactor: 0.95,
+                maxScaleFactor: 1.05,
+              );
 
-        return MediaQuery(
-          data: mediaQuery.copyWith(textScaler: clampedScale),
-          child: child ?? const SizedBox.shrink(),
+              return MediaQuery(
+                data: mediaQuery.copyWith(textScaler: clampedScale),
+                child: child ?? const SizedBox.shrink(),
+              );
+            },
+            home: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.992, end: 1).animate(animation),
+                  child: child,
+                ),
+              ),
+              child: currentScreen,
+            ),
+          ),
         );
       },
-      home: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        transitionBuilder: (child, animation) => FadeTransition(
-          opacity: animation,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.992, end: 1).animate(animation),
-            child: child,
-          ),
-        ),
-        child: currentScreen,
-      ),
     );
   }
 }

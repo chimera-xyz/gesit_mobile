@@ -1,15 +1,25 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/demo_data.dart';
+import '../data/gesit_api_client.dart';
+import '../data/workspace_data_controller.dart';
 import '../models/app_models.dart';
+import '../screens/submission_detail_screen.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_session_scope.dart';
 import '../widgets/brand_widgets.dart';
 
 class FormSubmissionScreen extends StatefulWidget {
-  const FormSubmissionScreen({super.key, required this.form});
+  const FormSubmissionScreen({
+    super.key,
+    required this.form,
+    required this.controller,
+  });
 
   final FormTemplate form;
+  final WorkspaceDataController controller;
 
   @override
   State<FormSubmissionScreen> createState() => _FormSubmissionScreenState();
@@ -18,7 +28,10 @@ class FormSubmissionScreen extends StatefulWidget {
 class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, String?> _selectedOptions = {};
+  final Map<String, Set<String>> _selectedMultiOptions = {};
+  final Map<String, PlatformFile> _selectedFiles = {};
   bool _showApprovalDetails = false;
+  bool _submitting = false;
 
   @override
   void initState() {
@@ -27,7 +40,18 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
     for (final field in widget.form.fields) {
       switch (field.type) {
         case FormFieldType.select:
+        case FormFieldType.radio:
           _selectedOptions[field.id] = field.initialValue;
+          break;
+        case FormFieldType.checkbox:
+          _selectedMultiOptions[field.id] = <String>{
+            if (field.initialValue != null &&
+                field.initialValue!.trim().isNotEmpty)
+              ...field.initialValue!
+                  .split(',')
+                  .map((item) => item.trim())
+                  .where((item) => item.isNotEmpty),
+          };
           break;
         case FormFieldType.text:
         case FormFieldType.multiline:
@@ -54,6 +78,9 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final session = AppSessionScope.watch(context).session;
+    final requesterName = session?.user.name ?? DemoData.userName;
+    final divisionLabel = session?.user.divisionLabel ?? DemoData.userDivision;
     final hasVerifiedDescription =
         widget.form.descriptionVerified &&
         widget.form.description.trim().isNotEmpty;
@@ -140,11 +167,11 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
                               children: [
                                 _MetaPill(
                                   icon: Icons.account_circle_rounded,
-                                  label: DemoData.userName,
+                                  label: requesterName,
                                 ),
                                 _MetaPill(
                                   icon: Icons.apartment_rounded,
-                                  label: DemoData.userDivision,
+                                  label: divisionLabel,
                                 ),
                                 _MetaPill(
                                   icon: Icons.account_tree_rounded,
@@ -289,8 +316,8 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton(
-                  onPressed: _submit,
-                  child: const Text('Kirim Pengajuan'),
+                  onPressed: _submitting ? null : _submit,
+                  child: Text(_submitting ? 'Mengirim...' : 'Kirim Pengajuan'),
                 ),
               ),
             ],
@@ -344,6 +371,75 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
               ? null
               : (value) => setState(() => _selectedOptions[field.id] = value),
         );
+      case FormFieldType.radio:
+        return Column(
+          children: [
+            for (final option in field.options) ...[
+              InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: field.readOnly
+                    ? null
+                    : () => setState(() => _selectedOptions[field.id] = option),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: _selectedOptions[field.id] == option
+                          ? AppColors.goldDeep
+                          : AppColors.border,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _selectedOptions[field.id] == option
+                            ? Icons.radio_button_checked_rounded
+                            : Icons.radio_button_off_rounded,
+                        color: _selectedOptions[field.id] == option
+                            ? AppColors.goldDeep
+                            : AppColors.inkMuted,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(child: Text(option)),
+                    ],
+                  ),
+                ),
+              ),
+              if (option != field.options.last) const SizedBox(height: 10),
+            ],
+          ],
+        );
+      case FormFieldType.checkbox:
+        final selectedValues = _selectedMultiOptions[field.id] ?? <String>{};
+        return Column(
+          children: [
+            for (final option in field.options) ...[
+              CheckboxListTile(
+                dense: true,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: selectedValues.contains(option),
+                contentPadding: EdgeInsets.zero,
+                title: Text(option),
+                onChanged: field.readOnly
+                    ? null
+                    : (checked) => setState(() {
+                        final nextValues = Set<String>.from(selectedValues);
+                        if (checked == true) {
+                          nextValues.add(option);
+                        } else {
+                          nextValues.remove(option);
+                        }
+                        _selectedMultiOptions[field.id] = nextValues;
+                      }),
+              ),
+            ],
+          ],
+        );
       case FormFieldType.date:
         return TextField(
           controller: _controllers[field.id],
@@ -361,11 +457,11 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
         return TextField(
           controller: _controllers[field.id],
           readOnly: true,
-          onTap: () => _pickAttachment(field),
+          onTap: field.readOnly ? null : () => _pickAttachment(field),
           decoration: InputDecoration(
             hintText: field.placeholder ?? 'Pilih file',
             suffixIcon: IconButton(
-              onPressed: () => _pickAttachment(field),
+              onPressed: field.readOnly ? null : () => _pickAttachment(field),
               icon: const Icon(
                 Icons.attach_file_rounded,
                 color: AppColors.inkMuted,
@@ -385,6 +481,8 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
       case FormFieldType.text:
       case FormFieldType.multiline:
       case FormFieldType.select:
+      case FormFieldType.radio:
+      case FormFieldType.checkbox:
       case FormFieldType.date:
       case FormFieldType.file:
         return TextInputType.text;
@@ -437,111 +535,19 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
   }
 
   Future<void> _pickAttachment(FormFieldConfig field) async {
-    final files = _attachmentOptions(field);
-    final selectedFile = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        final textTheme = Theme.of(context).textTheme;
-
-        return SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-            child: BrandSurface(
-              radius: 30,
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Pilih Lampiran', style: textTheme.titleMedium),
-                  const SizedBox(height: 6),
-                  Text(
-                    field.label,
-                    style: textTheme.bodySmall?.copyWith(
-                      color: AppColors.inkMuted,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  for (final file in files)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      leading: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceAlt,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(
-                          Icons.description_rounded,
-                          color: AppColors.goldDeep,
-                        ),
-                      ),
-                      title: Text(
-                        file,
-                        style: textTheme.bodyMedium?.copyWith(
-                          color: AppColors.ink,
-                        ),
-                      ),
-                      onTap: () => Navigator.of(context).pop(file),
-                    ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      'Hapus lampiran',
-                      style: textTheme.bodyMedium?.copyWith(
-                        color: AppColors.red,
-                      ),
-                    ),
-                    onTap: () => Navigator.of(context).pop(''),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+    final selectedFile = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      withData: true,
     );
 
-    if (!mounted || selectedFile == null) {
+    if (!mounted || selectedFile == null || selectedFile.files.isEmpty) {
       return;
     }
 
-    _controllers[field.id]?.text = selectedFile;
+    final file = selectedFile.files.single;
+    _selectedFiles[field.id] = file;
+    _controllers[field.id]?.text = file.name;
     setState(() {});
-  }
-
-  List<String> _attachmentOptions(FormFieldConfig field) {
-    if (field.id == 'quotation_attachment') {
-      return const [
-        'quotation-laptop-trading-desk.pdf',
-        'vendor-comparison-q2.xlsx',
-        'asset-reference-price-list.pdf',
-      ];
-    }
-
-    if (field.id == 'supporting_document') {
-      return const [
-        'approval-manager-access.pdf',
-        'matrix-role-s21.xlsx',
-        'memo-user-request.docx',
-      ];
-    }
-
-    if (field.id == 'legal_document') {
-      return const ['vendor-nib.pdf', 'vendor-npwp.pdf', 'akta-perusahaan.pdf'];
-    }
-
-    return const [
-      'document-01.pdf',
-      'supporting-file.xlsx',
-      'attachment-note.docx',
-    ];
   }
 
   DateTime? _tryParseDate(String? value) {
@@ -556,26 +562,75 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
     }
   }
 
-  void _submit() {
+  dynamic _submissionFieldValue(FormFieldConfig field) {
+    switch (field.type) {
+      case FormFieldType.select:
+      case FormFieldType.radio:
+        return _selectedOptions[field.id]?.trim() ?? '';
+      case FormFieldType.checkbox:
+        return (_selectedMultiOptions[field.id] ?? <String>{})
+            .where((value) => value.trim().isNotEmpty)
+            .toList(growable: false);
+      case FormFieldType.file:
+        return _selectedFiles[field.id];
+      case FormFieldType.date:
+        final rawValue = _controllers[field.id]?.text.trim() ?? '';
+        final parsed = _tryParseDate(rawValue);
+        return parsed == null
+            ? rawValue
+            : DateFormat('yyyy-MM-dd').format(parsed);
+      case FormFieldType.text:
+      case FormFieldType.multiline:
+      case FormFieldType.number:
+      case FormFieldType.email:
+        return _controllers[field.id]?.text.trim() ?? '';
+    }
+  }
+
+  Future<void> _submit() async {
     final missingFields = <String>[];
+    final formData = <String, dynamic>{};
+    final files = <String, ApiMultipartFilePayload>{};
 
     for (final field in widget.form.fields) {
-      if (!field.required) {
+      final value = _submissionFieldValue(field);
+
+      if (field.required &&
+          ((value is String && value.isEmpty) ||
+              (value is List && value.isEmpty) ||
+              (value == null))) {
+        missingFields.add(field.label);
         continue;
       }
 
-      final value = switch (field.type) {
-        FormFieldType.select => _selectedOptions[field.id]?.trim() ?? '',
-        FormFieldType.text ||
-        FormFieldType.multiline ||
-        FormFieldType.date ||
-        FormFieldType.file ||
-        FormFieldType.number ||
-        FormFieldType.email => _controllers[field.id]?.text.trim() ?? '',
-      };
-
-      if (value.isEmpty) {
-        missingFields.add(field.label);
+      switch (field.type) {
+        case FormFieldType.file:
+          final file = value is PlatformFile ? value : null;
+          if (file == null) {
+            continue;
+          }
+          files[field.id] = ApiMultipartFilePayload(
+            fileName: file.name,
+            path: file.path,
+            bytes: file.bytes,
+          );
+          break;
+        case FormFieldType.checkbox:
+          if (value is List<String> && value.isNotEmpty) {
+            formData[field.id] = value;
+          }
+          break;
+        case FormFieldType.select:
+        case FormFieldType.radio:
+        case FormFieldType.text:
+        case FormFieldType.multiline:
+        case FormFieldType.date:
+        case FormFieldType.number:
+        case FormFieldType.email:
+          if (value is String && value.isNotEmpty) {
+            formData[field.id] = value;
+          }
+          break;
       }
     }
 
@@ -590,60 +645,53 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
       return;
     }
 
-    showDialog<void>(
-      context: context,
-      builder: (context) {
-        final textTheme = Theme.of(context).textTheme;
+    setState(() => _submitting = true);
 
-        return AlertDialog(
-          backgroundColor: AppColors.surface,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(28),
-            side: const BorderSide(color: AppColors.border),
-          ),
-          contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceAlt,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(
-                  Icons.check_circle_rounded,
-                  color: AppColors.goldDeep,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Pengajuan Siap Dikirim',
-                style: textTheme.titleLarge?.copyWith(color: AppColors.ink),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'UI pengisian form sudah siap. Backend submit akan disambungkan pada tahap berikutnya.',
-                style: textTheme.bodyMedium?.copyWith(color: AppColors.ink),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Tutup'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    try {
+      final createdTask = await widget.controller.submitForm(
+        form: widget.form,
+        formData: formData,
+        files: files,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pengajuan berhasil dikirim ke server.')),
+      );
+
+      pushBrandedRoute(
+        context,
+        SubmissionDetailScreen(
+          task: createdTask,
+          controller: widget.controller,
+        ),
+      );
+    } on GesitApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pengajuan belum berhasil dikirim. Coba lagi.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
   }
 }
 

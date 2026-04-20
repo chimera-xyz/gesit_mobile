@@ -1,8 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
-import '../data/demo_data.dart';
+import '../data/app_session_controller.dart';
+import '../data/chat_call_media_engine.dart';
+import '../data/chat_workspace_controller.dart';
+import '../data/gesit_api_client.dart';
 import '../data/notification_center_controller.dart';
+import '../data/workspace_data_controller.dart';
 import '../models/app_models.dart';
+import '../models/session_models.dart';
+import '../screens/chat/chat_call_screen.dart';
 import '../screens/chat/chat_conversation_screen.dart';
 import '../screens/chat/chat_hub_screen.dart';
 import '../screens/chat/group_detail_screen.dart';
@@ -18,9 +26,9 @@ import '../widgets/brand_widgets.dart';
 import '../widgets/notification_center_sheet.dart';
 
 class GesitShell extends StatefulWidget {
-  const GesitShell({super.key, required this.onLogout});
+  const GesitShell({super.key, required this.sessionController});
 
-  final VoidCallback onLogout;
+  final AppSessionController sessionController;
 
   @override
   State<GesitShell> createState() => _GesitShellState();
@@ -28,16 +36,26 @@ class GesitShell extends StatefulWidget {
 
 class _GesitShellState extends State<GesitShell>
     with SingleTickerProviderStateMixin {
-  int _currentIndex = 0;
-  int _previousIndex = 0;
+  AppShellModule _currentModule = AppShellModule.home;
+  AppShellModule _previousModule = AppShellModule.home;
   bool _isTransitioning = false;
   late final AnimationController _tabTransitionController;
   late final NotificationCenterController _notificationController;
+  late final WorkspaceDataController _workspaceController;
+  late final ChatWorkspaceController _chatController;
 
   @override
   void initState() {
     super.initState();
     _notificationController = NotificationCenterController()..startDemoFeed();
+    _chatController = ChatWorkspaceController(
+      sessionController: widget.sessionController,
+      notificationController: _notificationController,
+      callMediaEngine: WebRtcChatCallMediaEngine(),
+    )..ensureLoaded();
+    _workspaceController = WorkspaceDataController(
+      sessionController: widget.sessionController,
+    )..ensureLoaded();
     _tabTransitionController =
         AnimationController(
           vsync: this,
@@ -51,19 +69,21 @@ class _GesitShellState extends State<GesitShell>
 
   @override
   void dispose() {
+    _chatController.dispose();
+    _workspaceController.dispose();
     _notificationController.dispose();
     _tabTransitionController.dispose();
     super.dispose();
   }
 
-  void _selectTab(int index) {
-    if (index == _currentIndex) {
+  void _selectModule(AppShellModule module) {
+    if (module == _currentModule) {
       return;
     }
 
     setState(() {
-      _previousIndex = _currentIndex;
-      _currentIndex = index;
+      _previousModule = _currentModule;
+      _currentModule = module;
       _isTransitioning = true;
     });
 
@@ -71,7 +91,10 @@ class _GesitShellState extends State<GesitShell>
   }
 
   void _openSubmission(TaskItem task) {
-    pushBrandedRoute(context, SubmissionDetailScreen(task: task));
+    pushBrandedRoute(
+      context,
+      SubmissionDetailScreen(task: task, controller: _workspaceController),
+    );
   }
 
   void _openHelpdesk() {
@@ -90,16 +113,104 @@ class _GesitShellState extends State<GesitShell>
     pushBrandedRoute(
       context,
       ChatConversationScreen(
-        conversation: conversation,
+        controller: _chatController,
+        conversationId: conversation.id,
         onOpenGroupDetail: conversation.isGroup
             ? () => pushBrandedRoute(
                 context,
-                GroupDetailScreen(conversation: conversation),
+                GroupDetailScreen(
+                  controller: _chatController,
+                  conversationId: conversation.id,
+                  onStartVoiceCall: () => unawaited(
+                    _startCall(conversation.id, type: ChatCallType.voice),
+                  ),
+                  onStartVideoCall: () => unawaited(
+                    _startCall(conversation.id, type: ChatCallType.video),
+                  ),
+                ),
               )
             : null,
+        onStartVoiceCall: () =>
+            unawaited(_startCall(conversation.id, type: ChatCallType.voice)),
+        onStartVideoCall: () =>
+            unawaited(_startCall(conversation.id, type: ChatCallType.video)),
       ),
     );
   }
+
+  Future<void> _startCall(
+    String conversationId, {
+    required ChatCallType type,
+  }) async {
+    ChatCallSession? session;
+    try {
+      session = await _chatController.startOutgoingCall(
+        conversationId,
+        type: type,
+      );
+    } on GesitApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message),
+        ),
+      );
+      return;
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Panggilan belum bisa dimulai. Coba lagi.'),
+        ),
+      );
+      return;
+    }
+    if (session == null) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Masih ada panggilan aktif yang belum selesai.'),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    final targetConversationId = session.conversationId;
+    pushBrandedRoute(
+      context,
+      ChatCallScreen(
+        controller: _chatController,
+        conversationId: targetConversationId,
+      ),
+    );
+  }
+
+  Future<void> _openChatComposer() async {
+    final selectedConversation =
+        await showModalBottomSheet<ConversationPreview>(
+          context: context,
+          backgroundColor: Colors.transparent,
+          builder: (context) => _StartChatSheet(controller: _chatController),
+        );
+
+    if (!mounted || selectedConversation == null) {
+      return;
+    }
+
+    _openConversation(selectedConversation);
+  }
+
+  AppSession get _session => widget.sessionController.session!;
 
   Future<void> _openNotifications() async {
     final selectedNotification = await showModalBottomSheet<AppNotification>(
@@ -151,22 +262,32 @@ class _GesitShellState extends State<GesitShell>
       case NotificationDestination.none:
         return;
       case NotificationDestination.tasks:
-        _selectTab(1);
+        if (_session.canAccessTasks) {
+          _selectModule(AppShellModule.tasks);
+        }
         return;
       case NotificationDestination.forms:
-        _selectTab(2);
+        if (_session.canAccessForms) {
+          _selectModule(AppShellModule.forms);
+        }
         return;
       case NotificationDestination.helpdesk:
-        _openHelpdesk();
+        if (_session.canAccessHelpdesk) {
+          _openHelpdesk();
+        }
         return;
       case NotificationDestination.chat:
-        _selectTab(3);
+        if (_session.canAccessChat) {
+          _selectModule(AppShellModule.chat);
+        }
         return;
       case NotificationDestination.knowledgeHub:
-        _openKnowledgeHub();
+        if (_session.canAccessKnowledgeHub) {
+          _openKnowledgeHub();
+        }
         return;
       case NotificationDestination.profile:
-        _selectTab(4);
+        _selectModule(AppShellModule.profile);
         return;
     }
   }
@@ -174,47 +295,90 @@ class _GesitShellState extends State<GesitShell>
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _notificationController,
+      animation: Listenable.merge([
+        _notificationController,
+        _chatController,
+        _workspaceController,
+      ]),
       builder: (context, _) {
-        final items = [
-          _NavItem(label: 'Home', icon: Icons.dashboard_rounded),
-          _NavItem(label: 'Tasks', icon: Icons.fact_check_rounded),
-          _NavItem(label: 'Forms', icon: Icons.description_rounded),
-          _NavItem(
-            label: 'Chat',
-            icon: Icons.forum_rounded,
-            badgeCount: DemoData.unreadChatCount,
-          ),
-          _NavItem(label: 'Profile', icon: Icons.person_rounded),
-        ];
-        final screens = <Widget>[
-          HomeScreen(
+        final session = _session;
+        final modules = session.shellModules;
+        final resolvedCurrentModule = modules.contains(_currentModule)
+            ? _currentModule
+            : modules.first;
+        final resolvedPreviousModule = modules.contains(_previousModule)
+            ? _previousModule
+            : modules.first;
+        final items = modules
+            .map(
+              (module) => _NavItem(
+                module: module,
+                label: module.label,
+                icon: module.icon,
+                badgeCount: module == AppShellModule.chat
+                    ? _chatController.unreadConversationCount
+                    : 0,
+              ),
+            )
+            .toList(growable: false);
+        final screens = <AppShellModule, Widget>{
+          AppShellModule.home: HomeScreen(
             key: const PageStorageKey('home-tab'),
-            onOpenTasks: () => _selectTab(1),
-            onOpenForms: () => _selectTab(2),
+            userName: session.user.name,
+            userInitials: session.user.initials,
+            userRoleLabel: session.user.primaryRole,
+            activeFormCount: _workspaceController.activeFormCount,
+            pendingActionCount: _workspaceController.pendingActionCount,
+            canOpenTasks: session.canAccessTasks,
+            canOpenForms: session.canAccessForms,
+            canOpenHelpdesk: session.canAccessHelpdesk,
+            canOpenChat: session.canAccessChat,
+            onOpenTasks: () => _selectModule(AppShellModule.tasks),
+            onOpenForms: () => _selectModule(AppShellModule.forms),
+            onOpenChat: () => _selectModule(AppShellModule.chat),
             onOpenAiAssist: _openAiAssist,
             onOpenHelpdesk: _openHelpdesk,
             onOpenNotifications: _openNotifications,
             unreadNotificationCount: _notificationController.unreadCount,
           ),
-          TasksScreen(
-            key: const PageStorageKey('tasks-tab'),
-            onOpenTask: _openSubmission,
-          ),
-          const FormsScreen(key: PageStorageKey('forms-tab')),
-          ChatHubScreen(
-            key: const PageStorageKey('chat-tab'),
-            onOpenConversation: _openConversation,
-          ),
-          ProfileScreen(
+          if (session.canAccessTasks)
+            AppShellModule.tasks: TasksScreen(
+              key: const PageStorageKey('tasks-tab'),
+              controller: _workspaceController,
+              onOpenTask: _openSubmission,
+            ),
+          if (session.canAccessForms)
+            AppShellModule.forms: FormsScreen(
+              key: PageStorageKey('forms-tab'),
+              controller: _workspaceController,
+            ),
+          if (session.canAccessChat)
+            AppShellModule.chat: ChatHubScreen(
+              key: const PageStorageKey('chat-tab'),
+              controller: _chatController,
+              onOpenConversation: _openConversation,
+            ),
+          AppShellModule.profile: ProfileScreen(
             key: const PageStorageKey('profile-tab'),
-            onOpenTasks: () => _selectTab(1),
+            userName: session.user.name,
+            userInitials: session.user.initials,
+            userRoleLabel: session.user.primaryRole,
+            userDivisionLabel: session.user.divisionLabel,
+            canOpenTasks: session.canAccessTasks,
+            canOpenKnowledgeHub: session.canAccessKnowledgeHub,
+            canOpenHelpdesk: session.canAccessHelpdesk,
+            onOpenTasks: () => _selectModule(AppShellModule.tasks),
             onOpenKnowledgeHub: _openKnowledgeHub,
             onOpenHelpdesk: _openHelpdesk,
-            onLogout: widget.onLogout,
+            onLogout: () {
+              widget.sessionController.signOut();
+            },
           ),
-        ];
+        };
         final activeBanner = _notificationController.activeBanner;
+        final incomingCall = _chatController.hasIncomingCall
+            ? _chatController.activeCall
+            : null;
 
         return Scaffold(
           extendBody: true,
@@ -230,18 +394,10 @@ class _GesitShellState extends State<GesitShell>
                 child: child,
               ),
             ),
-            child: _currentIndex == 3
+            child: resolvedCurrentModule == AppShellModule.chat
                 ? FloatingActionButton(
                     key: const ValueKey('chat-fab'),
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'UI compose chat baru sudah siap untuk tahap backend.',
-                          ),
-                        ),
-                      );
-                    },
+                    onPressed: _openChatComposer,
                     backgroundColor: AppColors.goldDeep,
                     foregroundColor: Colors.white,
                     child: const Icon(Icons.edit_rounded),
@@ -265,13 +421,14 @@ class _GesitShellState extends State<GesitShell>
                       return Stack(
                         fit: StackFit.expand,
                         children: [
-                          for (var index = 0; index < screens.length; index++)
+                          for (final module in modules)
                             _TabBodyLayer(
-                              isActive: index == _currentIndex,
+                              isActive: module == resolvedCurrentModule,
                               isOutgoing:
-                                  _isTransitioning && index == _previousIndex,
+                                  _isTransitioning &&
+                                  module == resolvedPreviousModule,
                               progress: progress,
-                              child: screens[index],
+                              child: screens[module] ?? const SizedBox.shrink(),
                             ),
                         ],
                       );
@@ -317,6 +474,38 @@ class _GesitShellState extends State<GesitShell>
                   ),
                 ),
               ),
+              if (incomingCall != null)
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 120,
+                  child: SafeArea(
+                    top: false,
+                    child: _IncomingCallCard(
+                      session: incomingCall,
+                      accentColor:
+                          _chatController
+                              .conversationById(incomingCall.conversationId)
+                              ?.accentColor ??
+                          AppColors.goldDeep,
+                      onDecline: () =>
+                          unawaited(_chatController.declineActiveCall()),
+                      onAccept: () async {
+                        await _chatController.acceptActiveCall();
+                        if (!context.mounted) {
+                          return;
+                        }
+                        pushBrandedRoute(
+                          context,
+                          ChatCallScreen(
+                            controller: _chatController,
+                            conversationId: incomingCall.conversationId,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
             ],
           ),
           bottomNavigationBar: SafeArea(
@@ -342,13 +531,14 @@ class _GesitShellState extends State<GesitShell>
                     for (var index = 0; index < items.length; index++)
                       Expanded(
                         child: GestureDetector(
-                          onTap: () => _selectTab(index),
+                          onTap: () => _selectModule(items[index].module),
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 160),
                             curve: Curves.easeOutCubic,
                             padding: const EdgeInsets.symmetric(vertical: 10),
                             decoration: BoxDecoration(
-                              color: _currentIndex == index
+                              color:
+                                  resolvedCurrentModule == items[index].module
                                   ? AppColors.goldSoft
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(20),
@@ -359,7 +549,9 @@ class _GesitShellState extends State<GesitShell>
                                 _NavIcon(
                                   icon: items[index].icon,
                                   badgeCount: items[index].badgeCount,
-                                  color: _currentIndex == index
+                                  color:
+                                      resolvedCurrentModule ==
+                                          items[index].module
                                       ? AppColors.goldDeep
                                       : AppColors.inkMuted,
                                 ),
@@ -368,7 +560,9 @@ class _GesitShellState extends State<GesitShell>
                                   items[index].label,
                                   style: Theme.of(context).textTheme.labelSmall
                                       ?.copyWith(
-                                        color: _currentIndex == index
+                                        color:
+                                            resolvedCurrentModule ==
+                                                items[index].module
                                             ? AppColors.goldDeep
                                             : AppColors.inkMuted,
                                         fontWeight: FontWeight.w800,
@@ -392,11 +586,13 @@ class _GesitShellState extends State<GesitShell>
 
 class _NavItem {
   const _NavItem({
+    required this.module,
     required this.label,
     required this.icon,
     this.badgeCount = 0,
   });
 
+  final AppShellModule module;
   final String label;
   final IconData icon;
   final int badgeCount;
@@ -454,6 +650,251 @@ class _NavBadge extends StatelessWidget {
           fontWeight: FontWeight.w900,
           height: 1,
         ),
+      ),
+    );
+  }
+}
+
+class _StartChatSheet extends StatelessWidget {
+  const _StartChatSheet({required this.controller});
+
+  final ChatWorkspaceController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final contacts = controller.directoryMembers;
+    final groups = controller.groupConversations;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: BrandSurface(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+          radius: 34,
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Center(
+                  child: SizedBox(
+                    width: 44,
+                    child: Divider(thickness: 4, color: AppColors.borderStrong),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Mulai Chat',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 18),
+                if (contacts.isNotEmpty) ...[
+                  Text(
+                    'Kontak',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: AppColors.goldDeep,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ...contacts
+                      .take(6)
+                      .map(
+                        (member) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: BrandSurface(
+                            onTap: () async {
+                              try {
+                                final conversation = await controller
+                                    .ensureDirectConversation(member);
+                                if (context.mounted) {
+                                  Navigator.of(context).pop(conversation);
+                                }
+                              } catch (_) {
+                                if (!context.mounted) {
+                                  return;
+                                }
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Kontak chat belum siap dari server. Coba login ulang lalu muat lagi.',
+                                    ),
+                                  ),
+                                );
+                              }
+                            },
+                            padding: const EdgeInsets.all(14),
+                            radius: 24,
+                            child: Row(
+                              children: [
+                                ConversationAvatar(
+                                  label: member.name,
+                                  accentColor: member.accentColor,
+                                  showOnlineDot: member.active,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        member.name,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleMedium,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        member.role,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                  const SizedBox(height: 8),
+                ],
+                if (contacts.isEmpty && groups.isEmpty)
+                  const BrandSurface(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'Belum ada user atau grup chat yang tersedia dari server.',
+                    ),
+                  ),
+                if (groups.isNotEmpty) ...[
+                  Text(
+                    'Grup',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: AppColors.goldDeep,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ...groups
+                      .take(4)
+                      .map(
+                        (conversation) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: BrandSurface(
+                            onTap: () =>
+                                Navigator.of(context).pop(conversation),
+                            padding: const EdgeInsets.all(14),
+                            radius: 24,
+                            child: Row(
+                              children: [
+                                ConversationAvatar(
+                                  label: conversation.title,
+                                  accentColor: conversation.accentColor,
+                                  isGroup: true,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        conversation.title,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleMedium,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        conversation.subtitle,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IncomingCallCard extends StatelessWidget {
+  const _IncomingCallCard({
+    required this.session,
+    required this.accentColor,
+    required this.onDecline,
+    required this.onAccept,
+  });
+
+  final ChatCallSession session;
+  final Color accentColor;
+  final VoidCallback onDecline;
+  final VoidCallback onAccept;
+
+  @override
+  Widget build(BuildContext context) {
+    return BrandSurface(
+      padding: const EdgeInsets.all(18),
+      radius: 30,
+      backgroundColor: AppColors.surface,
+      child: Row(
+        children: [
+          ConversationAvatar(
+            label: session.title,
+            accentColor: accentColor,
+            isGroup: session.isGroup,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  session.title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${session.type.label}${session.isGroup ? ' grup' : ''}',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: AppColors.inkSoft),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onDecline,
+            style: IconButton.styleFrom(
+              backgroundColor: AppColors.red.withValues(alpha: 0.12),
+              foregroundColor: AppColors.red,
+            ),
+            icon: const Icon(Icons.call_end_rounded),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: onAccept,
+            style: IconButton.styleFrom(
+              backgroundColor: AppColors.emerald.withValues(alpha: 0.16),
+              foregroundColor: AppColors.emerald,
+            ),
+            icon: const Icon(Icons.call_rounded),
+          ),
+        ],
       ),
     );
   }

@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../data/demo_data.dart';
+import '../data/workspace_data_controller.dart';
 import '../models/app_models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
 
 class TasksScreen extends StatefulWidget {
-  const TasksScreen({super.key, required this.onOpenTask});
+  const TasksScreen({
+    super.key,
+    required this.controller,
+    required this.onOpenTask,
+  });
 
+  final WorkspaceDataController controller;
   final ValueChanged<TaskItem> onOpenTask;
 
   @override
@@ -25,75 +30,113 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final query = _searchController.text.trim().toLowerCase();
-    final emptyStateLabel = _emptyStateLabel(hasQuery: query.isNotEmpty);
-    final filteredTasks = DemoData.tasks.where((task) {
-      final matchesLane = task.lane == _selectedLane;
-      final matchesQuery =
-          query.isEmpty ||
-          task.title.toLowerCase().contains(query) ||
-          task.requester.toLowerCase().contains(query) ||
-          task.workflowLabel.toLowerCase().contains(query) ||
-          task.summary.toLowerCase().contains(query) ||
-          task.statusLabel.toLowerCase().contains(query);
-      return matchesLane && matchesQuery;
-    }).toList();
+  void initState() {
+    super.initState();
+    if (!widget.controller.tasksLoaded && !widget.controller.tasksLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.controller.refreshTasks();
+      });
+    }
+  }
 
-    return SingleChildScrollView(
-      physics: const ClampingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, kBottomBarInset),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          RevealUp(child: Text('Tasks', style: textTheme.headlineMedium)),
-          const SizedBox(height: 14),
-          AppSearchField(
-            controller: _searchController,
-            hintText: 'Cari pengajuan, requester, atau status',
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: 14),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const ClampingScrollPhysics(),
-            child: Row(
-              children: [
-                for (final lane in const [
-                  TaskLane.actionable,
-                  TaskLane.inProgress,
-                  TaskLane.history,
-                ]) ...[
-                  FilterPill(
-                    label: lane.label,
-                    selected: _selectedLane == lane,
-                    onTap: () => setState(() => _selectedLane = lane),
-                  ),
-                  const SizedBox(width: 10),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          if (filteredTasks.isEmpty)
-            BrandSurface(
-              padding: const EdgeInsets.all(18),
-              child: Text(emptyStateLabel, style: textTheme.bodyMedium),
-            )
-          else
-            for (var index = 0; index < filteredTasks.length; index++) ...[
-              RevealUp(
-                index: index + 1,
-                child: _TaskListCard(
-                  task: filteredTasks[index],
-                  onTap: () => widget.onOpenTask(filteredTasks[index]),
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        final textTheme = Theme.of(context).textTheme;
+        final query = _searchController.text.trim().toLowerCase();
+        final emptyStateLabel = _emptyStateLabel(hasQuery: query.isNotEmpty);
+        final tasks = widget.controller.tasks;
+        final filteredTasks = tasks
+            .where((task) {
+              final matchesLane = task.lane == _selectedLane;
+              final matchesQuery =
+                  query.isEmpty ||
+                  task.title.toLowerCase().contains(query) ||
+                  task.requester.toLowerCase().contains(query) ||
+                  task.workflowLabel.toLowerCase().contains(query) ||
+                  task.summary.toLowerCase().contains(query) ||
+                  task.statusLabel.toLowerCase().contains(query);
+              return matchesLane && matchesQuery;
+            })
+            .toList(growable: false);
+
+        return SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, kBottomBarInset),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              RevealUp(child: Text('Tasks', style: textTheme.headlineMedium)),
+              const SizedBox(height: 14),
+              AppSearchField(
+                controller: _searchController,
+                hintText: 'Cari pengajuan, requester, atau status',
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 14),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const ClampingScrollPhysics(),
+                child: Row(
+                  children: [
+                    for (final lane in const [
+                      TaskLane.actionable,
+                      TaskLane.inProgress,
+                      TaskLane.history,
+                    ]) ...[
+                      FilterPill(
+                        label: lane.label,
+                        selected: _selectedLane == lane,
+                        onTap: () => setState(() => _selectedLane = lane),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                  ],
                 ),
               ),
-              if (index != filteredTasks.length - 1) const SizedBox(height: 12),
+              if (widget.controller.tasksError != null) ...[
+                const SizedBox(height: 14),
+                BrandSurface(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    widget.controller.usingFallbackTasks
+                        ? 'Server tasks belum siap. Menampilkan data cadangan.'
+                        : widget.controller.tasksError!,
+                    style: textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+              if (widget.controller.tasksLoading && tasks.isEmpty)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 28),
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              else if (filteredTasks.isEmpty)
+                BrandSurface(
+                  padding: const EdgeInsets.all(18),
+                  child: Text(emptyStateLabel, style: textTheme.bodyMedium),
+                )
+              else
+                for (var index = 0; index < filteredTasks.length; index++) ...[
+                  RevealUp(
+                    index: index + 1,
+                    child: _TaskListCard(
+                      task: filteredTasks[index],
+                      onTap: () => widget.onOpenTask(filteredTasks[index]),
+                    ),
+                  ),
+                  if (index != filteredTasks.length - 1)
+                    const SizedBox(height: 12),
+                ],
             ],
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 

@@ -1,14 +1,24 @@
+import 'dart:convert';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../data/demo_data.dart';
+import '../data/workspace_data_controller.dart';
 import '../models/app_models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
 
 class SubmissionDetailScreen extends StatefulWidget {
-  const SubmissionDetailScreen({super.key, required this.task});
+  const SubmissionDetailScreen({
+    super.key,
+    required this.task,
+    required this.controller,
+  });
 
   final TaskItem task;
+  final WorkspaceDataController controller;
 
   @override
   State<SubmissionDetailScreen> createState() => _SubmissionDetailScreenState();
@@ -17,9 +27,25 @@ class SubmissionDetailScreen extends StatefulWidget {
 class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
   final TextEditingController _approvalNoteController = TextEditingController();
   bool _showProgressDetails = false;
+  late TaskItem _task;
+  bool _loadingDetail = false;
+  bool _processingAction = false;
 
-  List<SubmissionField> get _allSubmissionFields =>
-      DemoData.submissionFieldsFor(widget.task);
+  @override
+  void initState() {
+    super.initState();
+    _task = widget.task;
+
+    if ((_task.id ?? '').isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadLatestDetail();
+      });
+    }
+  }
+
+  List<SubmissionField> get _allSubmissionFields => _task.formFields.isNotEmpty
+      ? _task.formFields
+      : DemoData.submissionFieldsFor(_task);
 
   List<SubmissionField> get _detailFields => _allSubmissionFields
       .where((field) => field.label != 'Lampiran')
@@ -27,18 +53,18 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
 
   SubmissionField get _attachment => _allSubmissionFields.firstWhere(
     (field) => field.label == 'Lampiran',
-    orElse: () => const SubmissionField(
-      label: 'Lampiran',
-      value: 'requisition-preview.pdf',
-    ),
+    orElse: () =>
+        SubmissionField(label: 'Lampiran', value: _task.attachmentLabel),
   );
 
   List<SubmissionTimelineStep> get _progressSteps =>
-      DemoData.submissionTimelineFor(widget.task);
+      _task.timelineSteps.isNotEmpty
+      ? _task.timelineSteps
+      : DemoData.submissionTimelineFor(_task);
 
   SubmissionTimelineStep? get _activeProgressStep {
     for (final step in _progressSteps) {
-      if (step.statusLabel.toLowerCase() == 'aktif') {
+      if (step.isActive || step.statusLabel.toLowerCase() == 'aktif') {
         return step;
       }
     }
@@ -47,13 +73,21 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
   }
 
   bool get _currentStepRequiresSignature =>
-      _activeProgressStep?.requiresSignature ?? widget.task.requiresSignature;
+      _currentAction?.requiresSignature ??
+      _activeProgressStep?.requiresSignature ??
+      _task.requiresSignature;
+
+  SubmissionAction? get _currentAction =>
+      _task.availableActions.isNotEmpty ? _task.availableActions.first : null;
 
   String get _currentActionTitle =>
-      _activeProgressStep?.title ?? widget.task.statusLabel;
+      _currentAction?.stepName ??
+      _task.currentActionTitle ??
+      _activeProgressStep?.title ??
+      _task.statusLabel;
 
   String get _progressSummary {
-    if (widget.task.workflowStatus == TaskSubmissionStatus.rejected) {
+    if (_task.workflowStatus == TaskSubmissionStatus.rejected) {
       return '${_progressSteps.length} langkah • Workflow dihentikan';
     }
 
@@ -66,10 +100,11 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
     return '${_progressSteps.length} langkah • Semua tahap selesai';
   }
 
-  bool get _showsDecisionActions => widget.task.lane == TaskLane.actionable;
+  bool get _showsDecisionActions =>
+      _task.lane == TaskLane.actionable && _currentAction != null;
 
   String get _statusCardEyebrow {
-    switch (widget.task.lane) {
+    switch (_task.lane) {
       case TaskLane.actionable:
         return 'Perlu aksi';
       case TaskLane.inProgress:
@@ -80,19 +115,19 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
   }
 
   String get _statusCardDescription {
-    switch (widget.task.lane) {
+    switch (_task.lane) {
       case TaskLane.actionable:
         return _currentStepRequiresSignature
             ? 'Langkah ini membutuhkan tanda tangan digital sebelum approval selesai.'
             : 'Langkah ini bisa diproses langsung tanpa tanda tangan tambahan.';
       case TaskLane.inProgress:
-        return 'Pengajuan ini masih berjalan di workflow ${widget.task.workflowLabel} dan belum membutuhkan aksi dari Anda.';
+        return 'Pengajuan ini masih berjalan di workflow ${_task.workflowLabel} dan belum membutuhkan aksi dari Anda.';
       case TaskLane.history:
-        if (widget.task.workflowStatus == TaskSubmissionStatus.completed) {
+        if (_task.workflowStatus == TaskSubmissionStatus.completed) {
           return 'Pengajuan ini sudah selesai dan tidak memerlukan tindak lanjut.';
         }
 
-        return widget.task.rejectionReason ??
+        return _task.rejectionReason ??
             'Pengajuan ini ditutup pada salah satu tahap review dan perlu direvisi sebelum diajukan ulang.';
     }
   }
@@ -103,9 +138,49 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
     super.dispose();
   }
 
+  Future<void> _loadLatestDetail() async {
+    if ((_task.id ?? '').isEmpty) {
+      return;
+    }
+
+    setState(() => _loadingDetail = true);
+
+    try {
+      final updatedTask = await widget.controller.fetchTaskDetail(_task);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _task = updatedTask);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingDetail = false);
+      }
+    }
+  }
+
   Future<void> _handleApprovePressed() async {
+    final action = _currentAction;
+    if (action == null) {
+      return;
+    }
+
+    if (action.notesRequired && _approvalNoteController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Catatan approval wajib diisi untuk langkah ini.'),
+        ),
+      );
+      return;
+    }
+
+    String? signatureDataUrl;
     if (_currentStepRequiresSignature) {
-      final signed = await showModalBottomSheet<bool>(
+      final signed = await showModalBottomSheet<String>(
         context: context,
         backgroundColor: Colors.transparent,
         isScrollControlled: true,
@@ -113,33 +188,51 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
         builder: (context) {
           return _SignatureApprovalSheet(
             title: _currentActionTitle,
-            onUseSignature: () => Navigator.of(context).pop(true),
+            onUseSignature: (signatureDataUrl) =>
+                Navigator.of(context).pop(signatureDataUrl),
           );
         },
       );
 
-      if (signed != true || !mounted) {
+      if (signed == null || signed.trim().isEmpty || !mounted) {
+        return;
+      }
+      signatureDataUrl = signed;
+    }
+
+    setState(() => _processingAction = true);
+
+    try {
+      final updatedTask = await widget.controller.approveTask(
+        task: _task,
+        notes: _approvalNoteController.text.trim(),
+        signatureDataUrl: signatureDataUrl,
+      );
+      if (!mounted) {
         return;
       }
 
+      _approvalNoteController.clear();
+      setState(() => _task = updatedTask);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Tanda tangan digital sudah ditambahkan. Approval siap dihubungkan ke workflow backend.',
-          ),
-        ),
+        SnackBar(content: Text('${action.label} berhasil diproses.')),
       );
-      return;
-    }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('UI approval siap dihubungkan ke workflow backend.'),
-      ),
-    );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) {
+        setState(() => _processingAction = false);
+      }
+    }
   }
 
-  void _handleRejectPressed() {
+  Future<void> _handleRejectPressed() async {
     if (_approvalNoteController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -149,11 +242,35 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('UI penolakan siap dihubungkan ke workflow backend.'),
-      ),
-    );
+    setState(() => _processingAction = true);
+
+    try {
+      final updatedTask = await widget.controller.rejectTask(
+        task: _task,
+        reason: _approvalNoteController.text.trim(),
+      );
+      if (!mounted) {
+        return;
+      }
+
+      _approvalNoteController.clear();
+      setState(() => _task = updatedTask);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pengajuan berhasil ditolak.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) {
+        setState(() => _processingAction = false);
+      }
+    }
   }
 
   @override
@@ -193,6 +310,10 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                     ],
                   ),
                 ),
+                if (_loadingDetail) ...[
+                  const SizedBox(height: 12),
+                  const LinearProgressIndicator(minHeight: 3),
+                ],
                 const SizedBox(height: 18),
                 RevealUp(
                   index: 1,
@@ -210,8 +331,8 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                                 runSpacing: 8,
                                 children: [
                                   StatusChip(
-                                    label: widget.task.statusLabel,
-                                    color: widget.task.accentColor,
+                                    label: _task.statusLabel,
+                                    color: _task.accentColor,
                                   ),
                                 ],
                               ),
@@ -220,7 +341,7 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                             Padding(
                               padding: const EdgeInsets.only(top: 4),
                               child: Text(
-                                widget.task.timeLabel,
+                                _task.timeLabel,
                                 style: textTheme.bodySmall?.copyWith(
                                   color: AppColors.inkMuted,
                                 ),
@@ -230,7 +351,7 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                         ),
                         const SizedBox(height: 14),
                         Text(
-                          widget.task.title,
+                          _task.title,
                           style: textTheme.headlineMedium?.copyWith(
                             fontSize: 26,
                           ),
@@ -240,13 +361,10 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                           spacing: 10,
                           runSpacing: 10,
                           children: [
-                            _MetaTile(
-                              label: 'Pemohon',
-                              value: widget.task.requester,
-                            ),
+                            _MetaTile(label: 'Pemohon', value: _task.requester),
                             _MetaTile(
                               label: 'Workflow',
-                              value: widget.task.workflowLabel,
+                              value: _task.workflowLabel,
                             ),
                             _MetaTile(
                               label: 'Tahap saat ini',
@@ -327,16 +445,35 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                         ),
                         const SizedBox(width: 12),
                         OutlinedButton(
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Preview PDF siap dihubungkan ke viewer backend.',
-                                ),
-                              ),
-                            );
-                          },
-                          child: const Text('Pratinjau'),
+                          onPressed: !_task.canPreviewPdf
+                              ? null
+                              : () async {
+                                  final rawUrl =
+                                      _task.pdfPreviewUrl ??
+                                      _task.pdfDownloadUrl;
+                                  final uri = rawUrl == null
+                                      ? null
+                                      : Uri.tryParse(rawUrl);
+                                  if (uri == null) {
+                                    return;
+                                  }
+
+                                  final launched = await launchUrl(uri);
+                                  if (!launched && context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'PDF tidak berhasil dibuka.',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
+                          child: Text(
+                            _task.canPreviewPdf
+                                ? 'Pratinjau'
+                                : 'Belum tersedia',
+                          ),
                         ),
                       ],
                     ),
@@ -364,7 +501,7 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                         Text(
                           _showsDecisionActions
                               ? _currentActionTitle
-                              : widget.task.statusLabel,
+                              : _task.statusLabel,
                           style: textTheme.titleLarge,
                         ),
                         const SizedBox(height: 6),
@@ -390,32 +527,49 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                           TextField(
                             controller: _approvalNoteController,
                             maxLines: 3,
-                            decoration: const InputDecoration(
-                              hintText: 'Tambahkan catatan jika diperlukan',
+                            decoration: InputDecoration(
+                              hintText:
+                                  _currentAction?.notesPlaceholder ??
+                                  'Tambahkan catatan jika diperlukan',
                             ),
                           ),
                           const SizedBox(height: 12),
                           Row(
                             children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: _handleRejectPressed,
-                                  child: const Text('Tolak'),
+                              if (_currentAction?.canReject ?? false)
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: _processingAction
+                                        ? null
+                                        : _handleRejectPressed,
+                                    child: Text(
+                                      _processingAction
+                                          ? 'Memproses...'
+                                          : (_currentAction?.rejectLabel ??
+                                                'Tolak'),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 12),
+                              if (_currentAction?.canReject ?? false)
+                                const SizedBox(width: 12),
                               Expanded(
                                 child: FilledButton(
-                                  onPressed: _handleApprovePressed,
-                                  child: const Text('Setujui'),
+                                  onPressed: _processingAction
+                                      ? null
+                                      : _handleApprovePressed,
+                                  child: Text(
+                                    _processingAction
+                                        ? 'Memproses...'
+                                        : (_currentAction?.label ?? 'Setujui'),
+                                  ),
                                 ),
                               ),
                             ],
                           ),
                         ] else ...[
                           StatusChip(
-                            label: widget.task.lane.label,
-                            color: widget.task.accentColor,
+                            label: _task.lane.label,
+                            color: _task.accentColor,
                           ),
                         ],
                       ],
@@ -704,7 +858,7 @@ class _SignatureApprovalSheet extends StatefulWidget {
   });
 
   final String title;
-  final VoidCallback onUseSignature;
+  final ValueChanged<String> onUseSignature;
 
   @override
   State<_SignatureApprovalSheet> createState() =>
@@ -715,6 +869,7 @@ class _SignatureApprovalSheetState extends State<_SignatureApprovalSheet> {
   final List<List<Offset>> _strokes = <List<Offset>>[];
   String? _errorText;
   double _headerDragOffset = 0;
+  Size _canvasSize = const Size(1, 1);
 
   bool get _hasSignature => _strokes.any((stroke) => stroke.isNotEmpty);
 
@@ -742,7 +897,7 @@ class _SignatureApprovalSheetState extends State<_SignatureApprovalSheet> {
     });
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_hasSignature) {
       setState(() {
         _errorText = 'Tanda tangan belum digambar.';
@@ -750,7 +905,15 @@ class _SignatureApprovalSheetState extends State<_SignatureApprovalSheet> {
       return;
     }
 
-    widget.onUseSignature();
+    final signatureDataUrl = await _buildSignatureDataUrl();
+    if (signatureDataUrl == null || signatureDataUrl.trim().isEmpty) {
+      setState(() {
+        _errorText = 'Tanda tangan tidak berhasil diproses.';
+      });
+      return;
+    }
+
+    widget.onUseSignature(signatureDataUrl);
   }
 
   void _handleHeaderDragUpdate(DragUpdateDetails details) {
@@ -766,6 +929,31 @@ class _SignatureApprovalSheetState extends State<_SignatureApprovalSheet> {
     if (shouldClose) {
       Navigator.of(context).pop();
     }
+  }
+
+  Future<String?> _buildSignatureDataUrl() async {
+    final exportSize = Size(
+      _canvasSize.width <= 1 ? 900 : _canvasSize.width,
+      _canvasSize.height <= 1 ? 420 : _canvasSize.height,
+    );
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final rect = Offset.zero & exportSize;
+    canvas.drawRect(rect, Paint()..color = Colors.white);
+    _SignatureStrokePainter(strokes: _strokes).paint(canvas, exportSize);
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(
+      exportSize.width.ceil(),
+      exportSize.height.ceil(),
+    );
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (byteData == null) {
+      return null;
+    }
+
+    final bytes = byteData.buffer.asUint8List();
+    return 'data:image/png;base64,${base64Encode(bytes)}';
   }
 
   @override
@@ -846,44 +1034,53 @@ class _SignatureApprovalSheetState extends State<_SignatureApprovalSheet> {
                 ),
                 const SizedBox(height: 18),
                 Expanded(
-                  child: Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    padding: const EdgeInsets.all(12),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(18),
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onPanStart: _handlePanStart,
-                        onPanUpdate: _handlePanUpdate,
-                        onPanEnd: (_) {},
-                        child: CustomPaint(
-                          foregroundPainter: _SignatureStrokePainter(
-                            strokes: _strokes,
-                          ),
-                          child: Container(
-                            width: double.infinity,
-                            height: double.infinity,
-                            color: Colors.white,
-                            alignment: Alignment.center,
-                            child: IgnorePointer(
-                              child: !_hasSignature
-                                  ? Text(
-                                      'Tulis tanda tangan di sini',
-                                      style: textTheme.bodyMedium?.copyWith(
-                                        color: AppColors.inkMuted,
-                                      ),
-                                    )
-                                  : null,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      _canvasSize = Size(
+                        constraints.maxWidth - 24,
+                        constraints.maxHeight - 24,
+                      );
+
+                      return Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        padding: const EdgeInsets.all(12),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(18),
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onPanStart: _handlePanStart,
+                            onPanUpdate: _handlePanUpdate,
+                            onPanEnd: (_) {},
+                            child: CustomPaint(
+                              foregroundPainter: _SignatureStrokePainter(
+                                strokes: _strokes,
+                              ),
+                              child: Container(
+                                width: double.infinity,
+                                height: double.infinity,
+                                color: Colors.white,
+                                alignment: Alignment.center,
+                                child: IgnorePointer(
+                                  child: !_hasSignature
+                                      ? Text(
+                                          'Tulis tanda tangan di sini',
+                                          style: textTheme.bodyMedium?.copyWith(
+                                            color: AppColors.inkMuted,
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(height: 14),
