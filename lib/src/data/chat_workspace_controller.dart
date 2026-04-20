@@ -42,6 +42,7 @@ class ChatWorkspaceController extends ChangeNotifier {
   final List<Timer> _timers = [];
   final StreamController<ChatCallSignalEvent> _callSignalController =
       StreamController<ChatCallSignalEvent>.broadcast();
+  final Set<String> _cancelledPreparedOutgoingCallIds = <String>{};
 
   Future<void>? _loadFuture;
   String? _activeConversationId;
@@ -475,6 +476,194 @@ class ChatWorkspaceController extends ChangeNotifier {
     }
   }
 
+  ChatCallSession? prepareOutgoingCall(
+    String conversationId, {
+    required ChatCallType type,
+  }) {
+    if (_activeCall != null) {
+      return null;
+    }
+
+    final conversation = conversationById(conversationId);
+    if (conversation == null) {
+      return null;
+    }
+
+    final session = sessionController.session;
+    if (session == null) {
+      throw const GesitApiException(
+        'Panggilan belum bisa dimulai karena chat server belum terhubung.',
+      );
+    }
+
+    final now = DateTime.now();
+    final preparedCall = ChatCallSession(
+      id: 'prepared-call-${now.microsecondsSinceEpoch}',
+      conversationId: conversationId,
+      title: conversation.title,
+      subtitle: conversation.subtitle,
+      isGroup: conversation.isGroup,
+      type: type,
+      status: ChatCallStatus.ringing,
+      isIncoming: false,
+      createdAt: now,
+      participants: _buildCallParticipants(
+        conversationId,
+        type: type,
+        connected: false,
+      ),
+      cameraEnabled: type == ChatCallType.video,
+      metadata: const <String, dynamic>{'is_staged_outgoing': true},
+    );
+
+    _setActiveCall(preparedCall, isRemote: false);
+    _notifyListenersSafely();
+    return preparedCall;
+  }
+
+  Future<ChatCallSession?> connectPreparedOutgoingCall(
+    String provisionalCallId, {
+    required String conversationId,
+    required ChatCallType type,
+  }) async {
+    final preparedCall = _activeCall;
+    if (preparedCall == null ||
+        preparedCall.id != provisionalCallId ||
+        _activeCallIsRemote) {
+      return _activeCall;
+    }
+
+    final conversation = conversationById(conversationId);
+    if (conversation == null) {
+      _discardPreparedOutgoingCall(provisionalCallId);
+      return null;
+    }
+
+    final session = sessionController.session;
+    if (session == null) {
+      _discardPreparedOutgoingCall(provisionalCallId);
+      throw const GesitApiException(
+        'Panggilan belum bisa dimulai karena chat server belum terhubung.',
+      );
+    }
+
+    if (!_remoteChatAvailable) {
+      await _refreshFromServer();
+      if (_consumeCancelledPreparedOutgoingCall(provisionalCallId)) {
+        return null;
+      }
+      if (_activeCall != null && _activeCall?.id != provisionalCallId) {
+        return _activeCall?.conversationId == conversationId
+            ? _activeCall
+            : null;
+      }
+      if (!_remoteChatAvailable) {
+        _discardPreparedOutgoingCall(provisionalCallId);
+        throw const GesitApiException(
+          'Panggilan belum bisa dimulai karena chat server belum terhubung.',
+        );
+      }
+    }
+
+    try {
+      final payload = await _apiClient.startChatCall(
+        baseUrl: session.apiBaseUrl,
+        cookies: session.cookies,
+        conversationId: conversationId,
+        type: type,
+      );
+      await sessionController.syncCookies(payload.cookies);
+      final snapshot = _workspaceFromPayload(payload.data);
+
+      if (_consumeCancelledPreparedOutgoingCall(provisionalCallId)) {
+        final remoteCall = snapshot?.activeCall;
+        if (remoteCall != null) {
+          await _endRemoteCallSilently(
+            baseUrl: session.apiBaseUrl,
+            cookies: payload.cookies,
+            callId: remoteCall.id,
+          );
+          await _refreshFromServer();
+        }
+        return null;
+      }
+
+      if (snapshot != null) {
+        _applySnapshot(snapshot);
+      }
+      unawaited(_broadcastCurrentCallMediaState(signalType: 'ready'));
+      return _activeCall;
+    } on TimeoutException {
+      final recoveredCall = await _recoverOutgoingCallStart(conversationId);
+      if (_consumeCancelledPreparedOutgoingCall(provisionalCallId)) {
+        if (recoveredCall != null) {
+          await _endRemoteCallSilently(
+            baseUrl: session.apiBaseUrl,
+            cookies:
+                sessionController.session?.cookies ?? const <String, String>{},
+            callId: recoveredCall.id,
+          );
+          await _refreshFromServer();
+        }
+        return null;
+      }
+      if (recoveredCall != null || _activeCall != null) {
+        return recoveredCall;
+      }
+      _discardPreparedOutgoingCall(provisionalCallId);
+      throw const GesitApiException(
+        'Panggilan belum bisa dimulai. Server terlalu lama merespons.',
+      );
+    } on GesitApiException catch (error) {
+      if (error.statusCode == 409) {
+        final recoveredCall = await _recoverOutgoingCallStart(conversationId);
+        if (_consumeCancelledPreparedOutgoingCall(provisionalCallId)) {
+          if (recoveredCall != null) {
+            await _endRemoteCallSilently(
+              baseUrl: session.apiBaseUrl,
+              cookies:
+                  sessionController.session?.cookies ??
+                  const <String, String>{},
+              callId: recoveredCall.id,
+            );
+            await _refreshFromServer();
+          }
+          return null;
+        }
+        if (recoveredCall != null || _activeCall != null) {
+          return recoveredCall;
+        }
+      } else if (error.statusCode == 401) {
+        await _handleUnauthorized();
+      } else if (error.statusCode == 404 || error.statusCode == 501) {
+        _remoteChatAvailable = false;
+      } else {
+        final recoveredCall = await _recoverOutgoingCallStart(conversationId);
+        if (_consumeCancelledPreparedOutgoingCall(provisionalCallId)) {
+          if (recoveredCall != null) {
+            await _endRemoteCallSilently(
+              baseUrl: session.apiBaseUrl,
+              cookies:
+                  sessionController.session?.cookies ??
+                  const <String, String>{},
+              callId: recoveredCall.id,
+            );
+            await _refreshFromServer();
+          }
+          return null;
+        }
+        if (recoveredCall != null || _activeCall != null) {
+          return recoveredCall;
+        }
+      }
+      _discardPreparedOutgoingCall(provisionalCallId);
+      rethrow;
+    } catch (_) {
+      _discardPreparedOutgoingCall(provisionalCallId);
+      rethrow;
+    }
+  }
+
   Future<ChatCallSession?> startOutgoingCall(
     String conversationId, {
     required ChatCallType type,
@@ -498,7 +687,9 @@ class ChatWorkspaceController extends ChangeNotifier {
     if (!_remoteChatAvailable) {
       await _refreshFromServer();
       if (_activeCall != null) {
-        return _activeCall?.conversationId == conversationId ? _activeCall : null;
+        return _activeCall?.conversationId == conversationId
+            ? _activeCall
+            : null;
       }
       if (!_remoteChatAvailable) {
         throw const GesitApiException(
@@ -739,6 +930,12 @@ class ChatWorkspaceController extends ChangeNotifier {
       } on TimeoutException {
         // Keep call visible and let sync reconcile.
       }
+      return;
+    }
+
+    final session = _activeCall;
+    if (_isPreparedOutgoingCall(session)) {
+      _cancelPreparedOutgoingCall(session!.id);
       return;
     }
 
@@ -1465,6 +1662,54 @@ class ChatWorkspaceController extends ChangeNotifier {
     _activeCallIsRemote = session != null && isRemote;
   }
 
+  bool _isPreparedOutgoingCall(ChatCallSession? session) {
+    return session != null &&
+        session.isIncoming == false &&
+        session.metadata['is_staged_outgoing'] == true;
+  }
+
+  void _cancelPreparedOutgoingCall(String provisionalCallId) {
+    _cancelledPreparedOutgoingCallIds.add(provisionalCallId);
+    _discardPreparedOutgoingCall(provisionalCallId);
+  }
+
+  bool _consumeCancelledPreparedOutgoingCall(String provisionalCallId) {
+    return _cancelledPreparedOutgoingCallIds.remove(provisionalCallId);
+  }
+
+  void _discardPreparedOutgoingCall(String provisionalCallId) {
+    final session = _activeCall;
+    if (session == null ||
+        session.id != provisionalCallId ||
+        _activeCallIsRemote) {
+      return;
+    }
+
+    _callConnectTimer?.cancel();
+    _callConnectTimer = null;
+    _stopCallTicker();
+    _setActiveCall(null, isRemote: false);
+    unawaited(_syncCallMediaEngine());
+    _notifyListenersSafely();
+  }
+
+  Future<void> _endRemoteCallSilently({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String callId,
+  }) async {
+    try {
+      final payload = await _apiClient.endChatCall(
+        baseUrl: baseUrl,
+        cookies: cookies,
+        callId: callId,
+      );
+      await sessionController.syncCookies(payload.cookies);
+    } catch (_) {
+      // Ignore best-effort cleanup for cancelled optimistic calls.
+    }
+  }
+
   void _startCallTicker() {
     _callTickTimer?.cancel();
     _callTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -1628,17 +1873,9 @@ class ChatWorkspaceController extends ChangeNotifier {
   }
 
   int get _syncWaitSeconds {
-    final session = _activeCall;
-    if (session == null) {
-      return 12;
-    }
-
-    if (session.status == ChatCallStatus.ringing ||
-        session.status == ChatCallStatus.active) {
-      return CallRuntimeConfig.activeCallSyncWaitSeconds;
-    }
-
-    return 12;
+    // Keep long-poll windows short so interactive POST actions do not feel
+    // blocked by a hanging sync request during demos and regular chat usage.
+    return CallRuntimeConfig.activeCallSyncWaitSeconds;
   }
 
   void _handleWorkspaceEvents(List<ChatWorkspaceEvent> events) {

@@ -39,5 +39,5 @@ class CallRuntimeConfig {
     return List<Map<String, dynamic>>.unmodifiable(servers);
   }
 
-  static int get activeCallSyncWaitSeconds => 2;
+  static int get activeCallSyncWaitSeconds => 1;
 }

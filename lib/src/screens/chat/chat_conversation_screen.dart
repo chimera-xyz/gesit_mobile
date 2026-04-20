@@ -94,12 +94,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       return;
     }
 
-    await widget.controller.sendTextMessage(widget.conversationId, value);
-    if (!mounted) {
-      return;
-    }
     _composerController.clear();
     setState(() {});
+    await widget.controller.sendTextMessage(widget.conversationId, value);
   }
 
   Future<void> _recordVoiceNote() async {

@@ -107,6 +107,95 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'composer clears immediately while chat send request is still running',
+    (tester) async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.empty();
+
+      final sessionController = AppSessionController(
+        apiClient: GesitApiClient(),
+      );
+      await sessionController.syncSession(_buildSession(), notify: false);
+      final store = ChatStore();
+      final responseGate = Completer<void>();
+
+      final controller = ChatWorkspaceController(
+        sessionController: sessionController,
+        store: store,
+        apiClient: GesitApiClient(
+          httpClient: MockClient((request) async {
+            if (request.url.path.endsWith('/api/chat/workspace')) {
+              return _jsonResponse({'workspace': _workspaceJson()});
+            }
+            if (request.url.path.endsWith('/api/chat/sync')) {
+              return _jsonResponse({'last_event_id': 8, 'has_changes': false});
+            }
+            if (request.url.path.endsWith(
+              '/api/chat/conversations/srv-1/messages',
+            )) {
+              await responseGate.future;
+              return _jsonResponse({
+                'workspace': _workspaceJson(
+                  preview: 'Pesan async',
+                  unreadCount: 0,
+                  lastEventId: 8,
+                  messages: [
+                    _messageJson(
+                      id: 'msg-1',
+                      text: 'Halo dari server',
+                      senderName: 'Nadia Finance',
+                      isMine: false,
+                      sentAt: '2026-04-19T08:15:00.000Z',
+                    ),
+                    _messageJson(
+                      id: 'msg-2',
+                      text: 'Pesan async',
+                      senderName: 'Raihan Carjasti',
+                      isMine: true,
+                      sentAt: '2026-04-19T08:18:00.000Z',
+                    ),
+                  ],
+                ),
+              });
+            }
+            return _jsonResponse({'message': 'Not found'}, statusCode: 404);
+          }),
+        ),
+      );
+
+      addTearDown(() async {
+        controller.dispose();
+        await store.clearWorkspace('test-user');
+        sessionController.dispose();
+      });
+
+      await controller.ensureLoaded();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChatConversationScreen(
+            controller: controller,
+            conversationId: 'srv-1',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(find.byType(TextField), 'Pesan async');
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.tap(find.byIcon(Icons.send_rounded));
+      await tester.pump();
+
+      final composer = tester.widget<TextField>(find.byType(TextField));
+      expect(composer.controller?.text, isEmpty);
+      expect(controller.messagesFor('srv-1').last.text, 'Pesan async');
+
+      responseGate.complete();
+      await tester.pump();
+    },
+  );
 }
 
 AppSession _buildSession() {

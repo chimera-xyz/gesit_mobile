@@ -142,34 +142,11 @@ class _GesitShellState extends State<GesitShell>
     String conversationId, {
     required ChatCallType type,
   }) async {
-    ChatCallSession? session;
-    try {
-      session = await _chatController.startOutgoingCall(
-        conversationId,
-        type: type,
-      );
-    } on GesitApiException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.message),
-        ),
-      );
-      return;
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Panggilan belum bisa dimulai. Coba lagi.'),
-        ),
-      );
-      return;
-    }
-    if (session == null) {
+    final preparedCall = _chatController.prepareOutgoingCall(
+      conversationId,
+      type: type,
+    );
+    if (preparedCall == null) {
       if (!mounted) {
         return;
       }
@@ -185,14 +162,39 @@ class _GesitShellState extends State<GesitShell>
       return;
     }
 
-    final targetConversationId = session.conversationId;
     pushBrandedRoute(
       context,
       ChatCallScreen(
         controller: _chatController,
-        conversationId: targetConversationId,
+        conversationId: preparedCall.conversationId,
       ),
     );
+
+    try {
+      await _chatController.connectPreparedOutgoingCall(
+        preparedCall.id,
+        conversationId: conversationId,
+        type: type,
+      );
+    } on GesitApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+      return;
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Panggilan belum bisa dimulai. Coba lagi.'),
+        ),
+      );
+      return;
+    }
   }
 
   Future<void> _openChatComposer() async {

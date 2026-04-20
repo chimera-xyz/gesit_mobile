@@ -198,6 +198,84 @@ void main() {
     });
 
     test(
+      'prepared outgoing call shows immediately and stays cancelled if user closes before server responds',
+      () async {
+        final responseGate = Completer<void>();
+        var remoteEndCount = 0;
+
+        final controller = ChatWorkspaceController(
+          sessionController: sessionController,
+          store: store,
+          apiClient: GesitApiClient(
+            httpClient: MockClient((request) async {
+              if (request.url.path.endsWith('/api/chat/workspace')) {
+                return _jsonResponse({'workspace': _workspaceJson()});
+              }
+              if (request.url.path.endsWith('/api/chat/sync')) {
+                return _jsonResponse({
+                  'last_event_id': 8,
+                  'has_changes': false,
+                });
+              }
+              if (request.url.path.endsWith(
+                '/api/chat/conversations/srv-1/calls',
+              )) {
+                await responseGate.future;
+                return _jsonResponse({
+                  'workspace': _workspaceJson(
+                    activeCall: _callJson(
+                      id: 'call-optimistic-1',
+                      conversationId: 'srv-1',
+                      type: 'voice',
+                      status: 'ringing',
+                      isIncoming: false,
+                    ),
+                  ),
+                });
+              }
+              if (request.url.path.endsWith(
+                '/api/chat/calls/call-optimistic-1/end',
+              )) {
+                remoteEndCount += 1;
+                return _jsonResponse({'workspace': _workspaceJson()});
+              }
+              return _jsonResponse({'message': 'Not found'}, statusCode: 404);
+            }),
+          ),
+        );
+        addTearDown(controller.dispose);
+
+        await controller.ensureLoaded();
+
+        final preparedCall = controller.prepareOutgoingCall(
+          'srv-1',
+          type: ChatCallType.voice,
+        );
+
+        expect(preparedCall, isNotNull);
+        expect(controller.activeCall?.id, preparedCall?.id);
+        expect(controller.activeCall?.status, ChatCallStatus.ringing);
+
+        final connectFuture = controller.connectPreparedOutgoingCall(
+          preparedCall!.id,
+          conversationId: 'srv-1',
+          type: ChatCallType.voice,
+        );
+
+        expect(controller.activeCall?.id, preparedCall.id);
+
+        await controller.endActiveCall();
+        expect(controller.activeCall, isNull);
+
+        responseGate.complete();
+        await connectFuture;
+
+        expect(remoteEndCount, 1);
+        expect(controller.activeCall, isNull);
+      },
+    );
+
+    test(
       '401 workspace response clears cached chat and invalidates session',
       () async {
         await store.writeWorkspace(

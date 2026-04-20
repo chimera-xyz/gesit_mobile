@@ -608,13 +608,19 @@ class GesitApiClient {
     required Map<String, String> cookies,
     required Map<String, dynamic> body,
   }) async {
-    final response = await _httpClient
-        .post(
-          _buildUri(baseUrl, path),
-          headers: _headersWithCookies(_jsonHeaders, cookies),
-          body: jsonEncode(body),
-        )
-        .timeout(_requestTimeout);
+    final response =
+        await (_browserManagedCookies
+                ? _httpClient.post(
+                    _buildUri(baseUrl, path),
+                    headers: _headersWithCookies(_requestHeaders, cookies),
+                    body: _flattenFormBody(body),
+                  )
+                : _httpClient.post(
+                    _buildUri(baseUrl, path),
+                    headers: _headersWithCookies(_jsonHeaders, cookies),
+                    body: jsonEncode(body),
+                  ))
+            .timeout(_requestTimeout);
 
     return _parseJsonPayload(response, existingCookies: cookies);
   }
@@ -756,6 +762,37 @@ class GesitApiClient {
 
   Map<String, String> get _jsonHeaders {
     return {..._requestHeaders, 'Content-Type': 'application/json'};
+  }
+
+  Map<String, String> _flattenFormBody(Map<String, dynamic> body) {
+    final flattened = <String, String>{};
+
+    void visit(String key, Object? value) {
+      if (value == null) {
+        return;
+      }
+
+      if (value is Map) {
+        for (final entry in value.entries) {
+          final nestedKey = '$key[${entry.key}]';
+          visit(nestedKey, entry.value);
+        }
+        return;
+      }
+
+      if (value is bool) {
+        flattened[key] = value ? '1' : '0';
+        return;
+      }
+
+      flattened[key] = value.toString();
+    }
+
+    for (final entry in body.entries) {
+      visit(entry.key, entry.value);
+    }
+
+    return flattened;
   }
 
   Map<String, String> _headersWithCookies(
