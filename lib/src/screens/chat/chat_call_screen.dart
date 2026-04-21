@@ -181,6 +181,8 @@ class _ChatCallScreenState extends State<ChatCallScreen> {
             : 'Menutup layar call akan langsung mengakhiri panggilan yang sedang berjalan.';
 
         return AlertDialog(
+          backgroundColor: AppColors.surface,
+          surfaceTintColor: Colors.transparent,
           title: Text(title),
           content: Text(message),
           actions: [

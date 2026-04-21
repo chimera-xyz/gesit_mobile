@@ -73,6 +73,55 @@ void main() {
       },
     );
 
+    test('ensureLoaded consumes realtime stream updates before polling', () async {
+      var syncRequests = 0;
+      final controller = ChatWorkspaceController(
+        sessionController: sessionController,
+        store: store,
+        apiClient: GesitApiClient(
+          httpClient: MockClient((request) async {
+            if (request.url.path.endsWith('/api/chat/workspace')) {
+              return _jsonResponse({'workspace': _workspaceJson()});
+            }
+            if (request.url.path.endsWith('/api/chat/stream')) {
+              return http.Response(
+                'event: workspace\n'
+                'id: 8\n'
+                'data: ${jsonEncode({
+                  'last_event_id': 8,
+                  'workspace': _workspaceJson(
+                    preview: 'Update realtime',
+                    lastEventId: 8,
+                    messages: [
+                      _messageJson(id: 'msg-1', text: 'Halo dari server', senderName: 'Nadia Finance', isMine: false, sentAt: '2026-04-19T08:15:00.000Z'),
+                      _messageJson(id: 'msg-2', text: 'Update realtime', senderName: 'Nadia Finance', isMine: false, sentAt: '2026-04-19T08:18:00.000Z'),
+                    ],
+                  ),
+                  'events': [],
+                })}\n'
+                '\n',
+                200,
+                headers: {'content-type': 'text/event-stream'},
+              );
+            }
+            if (request.url.path.endsWith('/api/chat/sync')) {
+              syncRequests += 1;
+              return _jsonResponse({'last_event_id': 8, 'has_changes': false});
+            }
+            return _jsonResponse({'message': 'Not found'}, statusCode: 404);
+          }),
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.ensureLoaded();
+      await pumpEventQueue(times: 4);
+
+      expect(controller.conversationById('srv-1')?.preview, 'Update realtime');
+      expect(controller.messagesFor('srv-1').last.text, 'Update realtime');
+      expect(syncRequests, 0);
+    });
+
     test(
       'ensureDirectConversation no longer creates local dummy chats',
       () async {

@@ -159,6 +159,13 @@ ThemeData buildAppTheme() {
       backgroundColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
     ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: AppColors.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      titleTextStyle: textTheme.titleLarge?.copyWith(color: AppColors.ink),
+      contentTextStyle: textTheme.bodyMedium?.copyWith(color: AppColors.ink),
+    ),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: AppColors.ink,
       contentTextStyle: textTheme.bodyMedium?.copyWith(color: Colors.white),

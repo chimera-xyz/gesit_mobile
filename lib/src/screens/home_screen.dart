@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 
+import '../data/feed_controller.dart';
 import '../data/demo_data.dart';
+import '../models/feed_models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
+import '../widgets/feed_widgets.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -14,6 +17,7 @@ class HomeScreen extends StatefulWidget {
     required this.userName,
     required this.userInitials,
     required this.userRoleLabel,
+    required this.userDivisionLabel,
     required this.activeFormCount,
     required this.pendingActionCount,
     required this.canOpenTasks,
@@ -27,11 +31,14 @@ class HomeScreen extends StatefulWidget {
     required this.onOpenHelpdesk,
     required this.onOpenNotifications,
     required this.unreadNotificationCount,
+    required this.feedController,
+    required this.onOpenFeedThread,
   });
 
   final String userName;
   final String userInitials;
   final String userRoleLabel;
+  final String userDivisionLabel;
   final int activeFormCount;
   final int pendingActionCount;
   final bool canOpenTasks;
@@ -45,6 +52,8 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback onOpenHelpdesk;
   final VoidCallback onOpenNotifications;
   final int unreadNotificationCount;
+  final FeedController feedController;
+  final ValueChanged<FeedPost> onOpenFeedThread;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -72,6 +81,82 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _clockTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _openComposer() async {
+    final draft = await showFeedComposerSheet(
+      context,
+      userDivisionLabel: widget.userDivisionLabel,
+    );
+    if (!mounted || draft == null) {
+      return;
+    }
+
+    try {
+      await widget.feedController.createPost(
+        content: draft.content,
+        visibility: draft.visibility,
+      );
+    } on Exception catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _togglePostLike(FeedPost post) async {
+    try {
+      await widget.feedController.togglePostLike(post.id);
+    } on Exception catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _deletePost(FeedPost post) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        surfaceTintColor: Colors.transparent,
+        title: const Text('Hapus postingan?'),
+        content: const Text(
+          'Postingan ini akan hilang dari feed untuk audience yang bisa melihatnya.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    try {
+      await widget.feedController.deletePost(post.id);
+    } on Exception catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$error')));
+    }
   }
 
   @override
@@ -130,6 +215,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
     ];
     final visibleStatusCards = statusCards.take(3).toList(growable: false);
+    final feedPosts = widget.feedController.posts
+        .take(4)
+        .toList(growable: false);
 
     return SingleChildScrollView(
       physics: const ClampingScrollPhysics(),
@@ -273,6 +361,113 @@ class _HomeScreenState extends State<HomeScreen> {
                 ) ...[
                   if (index > 0) const SizedBox(width: 12),
                   visibleStatusCards[index],
+                ],
+              ],
+            ),
+          const SizedBox(height: 24),
+          SectionHeader(
+            eyebrow: 'Feed',
+            title: 'Update Internal',
+            trailing: SizedBox(
+              width: 52,
+              height: 52,
+              child: FilledButton(
+                onPressed: widget.feedController.creatingPost
+                    ? null
+                    : _openComposer,
+                style: FilledButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
+                child: widget.feedController.creatingPost
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.add_rounded),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (widget.feedController.loading && feedPosts.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 26),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (widget.feedController.error != null && feedPosts.isEmpty)
+            BrandSurface(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Feed belum bisa dimuat',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.feedController.error!,
+                    style: textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+            )
+          else if (feedPosts.isEmpty)
+            BrandSurface(
+              padding: const EdgeInsets.all(18),
+              child: Text(
+                'Belum ada update di feed. Mulai thread pertama dari dashboard ini.',
+                style: textTheme.bodyMedium,
+              ),
+            )
+          else
+            Column(
+              children: [
+                for (var index = 0; index < feedPosts.length; index++) ...[
+                  if (index > 0) const SizedBox(height: 14),
+                  RevealUp(
+                    index: 2 + index,
+                    child: FeedPostCard(
+                      post: feedPosts[index],
+                      compact: true,
+                      onOpenThread: () =>
+                          widget.onOpenFeedThread(feedPosts[index]),
+                      onToggleLike: () =>
+                          unawaited(_togglePostLike(feedPosts[index])),
+                      onDelete: feedPosts[index].canDelete
+                          ? () => unawaited(_deletePost(feedPosts[index]))
+                          : null,
+                      likeBusy: widget.feedController.isPostLikeBusy(
+                        feedPosts[index].id,
+                      ),
+                    ),
+                  ),
+                ],
+                if (widget.feedController.hasMore) ...[
+                  const SizedBox(height: 14),
+                  OutlinedButton.icon(
+                    onPressed: widget.feedController.loadingMore
+                        ? null
+                        : () => unawaited(widget.feedController.loadMore()),
+                    icon: widget.feedController.loadingMore
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.expand_more_rounded),
+                    label: const Text('Muat lagi'),
+                  ),
                 ],
               ],
             ),

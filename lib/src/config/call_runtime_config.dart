@@ -40,4 +40,9 @@ class CallRuntimeConfig {
   }
 
   static int get activeCallSyncWaitSeconds => 1;
+
+  static bool get chatRealtimeStreamEnabled => true;
+
+  static Duration get chatRealtimeStreamRetryDelay =>
+      const Duration(milliseconds: 450);
 }

@@ -78,6 +78,8 @@ class GesitApiClient {
   final bool _browserManagedCookies;
 
   static const Duration _requestTimeout = Duration(seconds: 18);
+  static const Duration _knowledgeAssistantTimeout = Duration(seconds: 45);
+  static const Duration _streamConnectTimeout = Duration(seconds: 8);
 
   Future<AuthenticatedApiPayload> signIn({
     required String baseUrl,
@@ -290,6 +292,115 @@ class GesitApiClient {
     );
   }
 
+  Future<JsonApiPayload> fetchFeed({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    int page = 1,
+    int perPage = 10,
+  }) {
+    return _getJson(
+      baseUrl: baseUrl,
+      path: '/api/feed',
+      cookies: cookies,
+      queryParameters: {'page': '$page', 'per_page': '$perPage'},
+    );
+  }
+
+  Future<JsonApiPayload> createFeedPost({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String content,
+    required String visibility,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/feed/posts',
+      cookies: cookies,
+      body: {'content': content, 'visibility': visibility},
+    );
+  }
+
+  Future<JsonApiPayload> fetchFeedPost({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String postId,
+  }) {
+    return _getJson(
+      baseUrl: baseUrl,
+      path: '/api/feed/posts/$postId',
+      cookies: cookies,
+    );
+  }
+
+  Future<JsonApiPayload> toggleFeedPostLike({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String postId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/feed/posts/$postId/likes/toggle',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> createFeedComment({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String postId,
+    required String content,
+    String? parentId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/feed/posts/$postId/comments',
+      cookies: cookies,
+      body: {
+        'content': content,
+        if (parentId != null && parentId.trim().isNotEmpty)
+          'parent_id': parentId.trim(),
+      },
+    );
+  }
+
+  Future<JsonApiPayload> toggleFeedCommentLike({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String commentId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/feed/comments/$commentId/likes/toggle',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> deleteFeedPost({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String postId,
+  }) {
+    return _deleteJson(
+      baseUrl: baseUrl,
+      path: '/api/feed/posts/$postId',
+      cookies: cookies,
+    );
+  }
+
+  Future<JsonApiPayload> deleteFeedComment({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String commentId,
+  }) {
+    return _deleteJson(
+      baseUrl: baseUrl,
+      path: '/api/feed/comments/$commentId',
+      cookies: cookies,
+    );
+  }
+
   Future<JsonApiPayload> drawSignature({
     required String baseUrl,
     required Map<String, String> cookies,
@@ -304,6 +415,88 @@ class GesitApiClient {
         'approval_step_id': approvalStepId,
         'signature_data': signatureDataUrl,
       },
+    );
+  }
+
+  Future<JsonApiPayload> fetchKnowledgeHub({
+    required String baseUrl,
+    required Map<String, String> cookies,
+  }) {
+    return _getJson(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub',
+      cookies: cookies,
+    );
+  }
+
+  Future<JsonApiPayload> fetchKnowledgeConversations({
+    required String baseUrl,
+    required Map<String, String> cookies,
+  }) {
+    return _getJson(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub/conversations',
+      cookies: cookies,
+    );
+  }
+
+  Future<JsonApiPayload> fetchKnowledgeConversation({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String conversationId,
+  }) {
+    return _getJson(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub/conversations/$conversationId',
+      cookies: cookies,
+    );
+  }
+
+  Future<JsonApiPayload> askKnowledgeAssistant({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String question,
+    String? conversationId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub/ask',
+      cookies: cookies,
+      body: {
+        'question': question,
+        if (conversationId != null && conversationId.trim().isNotEmpty)
+          'conversation_id': conversationId.trim(),
+      },
+      timeout: _knowledgeAssistantTimeout,
+    );
+  }
+
+  Future<JsonApiPayload> toggleKnowledgeBookmark({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String entryId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub/entries/$entryId/bookmark',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> runKnowledgeConversationAction({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String conversationId,
+    required String messageId,
+    required String actionKey,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub/conversations/$conversationId/actions',
+      cookies: cookies,
+      body: {'message_id': messageId, 'action_key': actionKey},
+      timeout: _knowledgeAssistantTimeout,
     );
   }
 
@@ -333,6 +526,43 @@ class GesitApiClient {
         'wait_seconds': '$waitSeconds',
       },
     );
+  }
+
+  Stream<JsonApiPayload> streamChatWorkspace({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required int afterEventId,
+  }) async* {
+    final request = http.Request(
+      'GET',
+      _buildUri(
+        baseUrl,
+        '/api/chat/stream',
+        queryParameters: {'after_event_id': '$afterEventId'},
+      ),
+    );
+    request.headers.addAll(_headersWithCookies(_streamHeaders, cookies));
+
+    final streamedResponse = await _httpClient
+        .send(request)
+        .timeout(_streamConnectTimeout);
+
+    if (streamedResponse.statusCode < 200 ||
+        streamedResponse.statusCode >= 300) {
+      final response = await http.Response.fromStream(streamedResponse);
+      throw _buildApiException(response);
+    }
+
+    final streamCookies = _mergeCookies(
+      cookies,
+      _extractCookiesFromHeaders(streamedResponse.headers),
+    );
+
+    yield* _decodeJsonServerSentEvents(
+      streamedResponse.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter()),
+    ).map((data) => JsonApiPayload(data: data, cookies: streamCookies));
   }
 
   Future<JsonApiPayload> ensureDirectConversation({
@@ -607,6 +837,7 @@ class GesitApiClient {
     required String path,
     required Map<String, String> cookies,
     required Map<String, dynamic> body,
+    Duration timeout = _requestTimeout,
   }) async {
     final response =
         await (_browserManagedCookies
@@ -620,7 +851,7 @@ class GesitApiClient {
                     headers: _headersWithCookies(_jsonHeaders, cookies),
                     body: jsonEncode(body),
                   ))
-            .timeout(_requestTimeout);
+            .timeout(timeout);
 
     return _parseJsonPayload(response, existingCookies: cookies);
   }
@@ -653,6 +884,21 @@ class GesitApiClient {
           _buildUri(baseUrl, path),
           headers: _headersWithCookies(_jsonHeaders, cookies),
           body: jsonEncode(body),
+        )
+        .timeout(_requestTimeout);
+
+    return _parseJsonPayload(response, existingCookies: cookies);
+  }
+
+  Future<JsonApiPayload> _deleteJson({
+    required String baseUrl,
+    required String path,
+    required Map<String, String> cookies,
+  }) async {
+    final response = await _httpClient
+        .delete(
+          _buildUri(baseUrl, path),
+          headers: _headersWithCookies(_requestHeaders, cookies),
         )
         .timeout(_requestTimeout);
 
@@ -764,6 +1010,14 @@ class GesitApiClient {
     return {..._requestHeaders, 'Content-Type': 'application/json'};
   }
 
+  Map<String, String> get _streamHeaders {
+    return {
+      ..._requestHeaders,
+      'Accept': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+    };
+  }
+
   Map<String, String> _flattenFormBody(Map<String, dynamic> body) {
     final flattened = <String, String>{};
 
@@ -812,11 +1066,15 @@ class GesitApiClient {
   }
 
   Map<String, String> _extractCookies(http.Response response) {
+    return _extractCookiesFromHeaders(response.headers);
+  }
+
+  Map<String, String> _extractCookiesFromHeaders(Map<String, String> headers) {
     if (_browserManagedCookies) {
       return const <String, String>{};
     }
 
-    final rawSetCookieHeader = response.headers['set-cookie'];
+    final rawSetCookieHeader = headers['set-cookie'];
     if (rawSetCookieHeader == null || rawSetCookieHeader.trim().isEmpty) {
       return const <String, String>{};
     }
@@ -940,5 +1198,94 @@ class GesitApiClient {
     }
 
     return value.toString();
+  }
+}
+
+Stream<Map<String, dynamic>> _decodeJsonServerSentEvents(
+  Stream<String> lines,
+) async* {
+  String? eventName;
+  String? eventId;
+  final dataLines = <String>[];
+
+  Map<String, dynamic>? decodePendingEvent() {
+    if (dataLines.isEmpty) {
+      return null;
+    }
+
+    final data = dataLines.join('\n').trim();
+    if (data.isEmpty) {
+      return null;
+    }
+
+    final decoded = jsonDecode(data);
+    if (decoded is! Map<String, dynamic>) {
+      return null;
+    }
+
+    final payload = Map<String, dynamic>.from(decoded);
+    if (eventId != null &&
+        eventId!.trim().isNotEmpty &&
+        !payload.containsKey('last_event_id')) {
+      final parsedEventId = int.tryParse(eventId!.trim());
+      if (parsedEventId != null) {
+        payload['last_event_id'] = parsedEventId;
+      }
+    }
+    if (eventName != null &&
+        eventName!.trim().isNotEmpty &&
+        !payload.containsKey('event')) {
+      payload['event'] = eventName!.trim();
+    }
+
+    return payload;
+  }
+
+  void resetPendingEvent() {
+    eventName = null;
+    eventId = null;
+    dataLines.clear();
+  }
+
+  await for (final rawLine in lines) {
+    final line = rawLine.endsWith('\r')
+        ? rawLine.substring(0, rawLine.length - 1)
+        : rawLine;
+
+    if (line.isEmpty) {
+      final payload = decodePendingEvent();
+      if (payload != null) {
+        yield payload;
+      }
+      resetPendingEvent();
+      continue;
+    }
+
+    if (line.startsWith(':')) {
+      continue;
+    }
+
+    final separatorIndex = line.indexOf(':');
+    final field = separatorIndex == -1
+        ? line
+        : line.substring(0, separatorIndex);
+    var value = separatorIndex == -1 ? '' : line.substring(separatorIndex + 1);
+    if (value.startsWith(' ')) {
+      value = value.substring(1);
+    }
+
+    switch (field) {
+      case 'event':
+        eventName = value;
+      case 'id':
+        eventId = value;
+      case 'data':
+        dataLines.add(value);
+    }
+  }
+
+  final payload = decodePendingEvent();
+  if (payload != null) {
+    yield payload;
   }
 }

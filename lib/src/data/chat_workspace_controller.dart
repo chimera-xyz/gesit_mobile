@@ -50,11 +50,14 @@ class ChatWorkspaceController extends ChangeNotifier {
   bool _activeCallIsRemote = false;
   bool _remoteChatAvailable = true;
   bool _syncLoopRunning = false;
+  bool _chatRealtimeStreamUnavailable = false;
   bool _disposed = false;
   int _syncFailureCount = 0;
   int _lastEventId = 0;
   Timer? _callConnectTimer;
   Timer? _callTickTimer;
+  Timer? _syncLoopDelayTimer;
+  Completer<void>? _syncLoopDelayCompleter;
   bool _notifyScheduled = false;
 
   bool get isLoaded => _loadFuture != null;
@@ -1066,50 +1069,117 @@ class ChatWorkspaceController extends ChangeNotifier {
     while (!_disposed &&
         _remoteChatAvailable &&
         sessionController.session != null) {
-      try {
-        final session = sessionController.session;
-        if (session == null) {
-          break;
+      if (_shouldUseRealtimeChatStream) {
+        await _runRealtimeStreamSync();
+        if (!_shouldUseRealtimeChatStream) {
+          continue;
         }
-
-        final payload = await _apiClient.syncChatWorkspace(
-          baseUrl: session.apiBaseUrl,
-          cookies: session.cookies,
-          afterEventId: _lastEventId,
-          waitSeconds: _syncWaitSeconds,
-        );
-        await sessionController.syncCookies(payload.cookies);
-        _syncFailureCount = 0;
-
-        final nextEventId = (payload.data['last_event_id'] as num?)?.toInt();
-        if (nextEventId != null && nextEventId > _lastEventId) {
-          _lastEventId = nextEventId;
+        if (!_disposed &&
+            _remoteChatAvailable &&
+            sessionController.session != null) {
+          await _waitBeforeNextSync(
+            CallRuntimeConfig.chatRealtimeStreamRetryDelay +
+                _syncBackoffFor(_syncFailureCount),
+          );
         }
-
-        final snapshot = _workspaceFromPayload(payload.data);
-        if (snapshot != null) {
-          _applySnapshot(snapshot);
-        }
-      } on TimeoutException {
         continue;
-      } on GesitApiException catch (error) {
-        _syncFailureCount += 1;
-        if (error.statusCode == 401) {
-          await _handleUnauthorized();
-          break;
-        }
-        if (error.statusCode == 404 || error.statusCode == 501) {
-          _remoteChatAvailable = false;
-          break;
-        }
-      } catch (_) {
-        _syncFailureCount += 1;
       }
 
-      await Future<void>.delayed(_syncBackoffFor(_syncFailureCount));
+      await _runPollingSyncOnce();
+      await _waitBeforeNextSync(_syncBackoffFor(_syncFailureCount));
     }
 
     _syncLoopRunning = false;
+  }
+
+  bool get _shouldUseRealtimeChatStream {
+    return CallRuntimeConfig.chatRealtimeStreamEnabled &&
+        !kIsWeb &&
+        !_chatRealtimeStreamUnavailable;
+  }
+
+  Future<void> _runRealtimeStreamSync() async {
+    try {
+      final session = sessionController.session;
+      if (session == null) {
+        return;
+      }
+
+      await for (final payload in _apiClient.streamChatWorkspace(
+        baseUrl: session.apiBaseUrl,
+        cookies: session.cookies,
+        afterEventId: _lastEventId,
+      )) {
+        if (_disposed || sessionController.session == null) {
+          break;
+        }
+
+        await sessionController.syncCookies(payload.cookies);
+        _remoteChatAvailable = true;
+        _syncFailureCount = 0;
+        _applySyncPayload(payload.data);
+      }
+    } on TimeoutException {
+      _syncFailureCount += 1;
+    } on GesitApiException catch (error) {
+      if (error.statusCode == 401) {
+        await _handleUnauthorized();
+        return;
+      }
+      if (error.statusCode == 404 || error.statusCode == 501) {
+        _chatRealtimeStreamUnavailable = true;
+        _syncFailureCount = 0;
+        return;
+      }
+      _syncFailureCount += 1;
+    } catch (_) {
+      _syncFailureCount += 1;
+    }
+  }
+
+  Future<void> _runPollingSyncOnce() async {
+    try {
+      final session = sessionController.session;
+      if (session == null) {
+        return;
+      }
+
+      final payload = await _apiClient.syncChatWorkspace(
+        baseUrl: session.apiBaseUrl,
+        cookies: session.cookies,
+        afterEventId: _lastEventId,
+        waitSeconds: _syncWaitSeconds,
+      );
+      await sessionController.syncCookies(payload.cookies);
+      _syncFailureCount = 0;
+      _applySyncPayload(payload.data);
+    } on TimeoutException {
+      return;
+    } on GesitApiException catch (error) {
+      _syncFailureCount += 1;
+      if (error.statusCode == 401) {
+        await _handleUnauthorized();
+        return;
+      }
+      if (error.statusCode == 404 || error.statusCode == 501) {
+        _remoteChatAvailable = false;
+        return;
+      }
+    } catch (_) {
+      _syncFailureCount += 1;
+    }
+  }
+
+  void _applySyncPayload(Map<String, dynamic> payload) {
+    final nextEventId = (payload['last_event_id'] as num?)?.toInt();
+    if (nextEventId != null && nextEventId > _lastEventId) {
+      _lastEventId = nextEventId;
+    }
+
+    final snapshot = _workspaceFromPayload(payload);
+    if (snapshot != null) {
+      _applySnapshot(snapshot);
+    }
   }
 
   Duration _syncBackoffFor(int failureCount) {
@@ -1119,6 +1189,39 @@ class ChatWorkspaceController extends ChangeNotifier {
 
     final seconds = math.min(8, failureCount * 2);
     return Duration(seconds: seconds);
+  }
+
+  Future<void> _waitBeforeNextSync(Duration duration) {
+    if (_disposed) {
+      return Future<void>.value();
+    }
+    if (duration <= Duration.zero) {
+      return Future<void>.delayed(Duration.zero);
+    }
+
+    _cancelSyncLoopDelay();
+    final completer = Completer<void>();
+    _syncLoopDelayCompleter = completer;
+    _syncLoopDelayTimer = Timer(duration, () {
+      _syncLoopDelayTimer = null;
+      _syncLoopDelayCompleter = null;
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
+    });
+
+    return completer.future;
+  }
+
+  void _cancelSyncLoopDelay() {
+    _syncLoopDelayTimer?.cancel();
+    _syncLoopDelayTimer = null;
+
+    final completer = _syncLoopDelayCompleter;
+    _syncLoopDelayCompleter = null;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete();
+    }
   }
 
   ChatWorkspaceSnapshot? _workspaceFromPayload(Map<String, dynamic> payload) {
@@ -2099,6 +2202,7 @@ class ChatWorkspaceController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _cancelSyncLoopDelay();
     _callConnectTimer?.cancel();
     _stopCallTicker();
     for (final timer in _timers) {

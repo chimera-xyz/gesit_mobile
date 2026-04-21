@@ -1,10 +1,22 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../data/app_session_controller.dart';
+import '../data/knowledge_workspace_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
 
 class KnowledgeWorkspaceScreen extends StatefulWidget {
-  const KnowledgeWorkspaceScreen({super.key});
+  const KnowledgeWorkspaceScreen({
+    super.key,
+    required this.sessionController,
+    this.openDocuments = false,
+  });
+
+  final AppSessionController sessionController;
+  final bool openDocuments;
 
   @override
   State<KnowledgeWorkspaceScreen> createState() =>
@@ -48,27 +60,32 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
   final TextEditingController _documentSearchController =
       TextEditingController();
 
-  late final List<_KnowledgeSpace> _spaces = _buildDemoSpaces();
-  late final List<_KnowledgeDocumentFile> _documents = _buildDemoDocuments();
-  late final List<_KnowledgeConversation> _conversationHistory =
-      _buildSeedConversations();
+  late final KnowledgeWorkspaceController _controller;
 
-  _KnowledgeWorkspaceView _currentView = _KnowledgeWorkspaceView.assistant;
+  late _KnowledgeWorkspaceView _currentView;
   _DocumentHubFilter _documentFilter = _DocumentHubFilter.all;
-  bool _isResponding = false;
-  String? _activeConversationId;
   String? _selectedSpaceId;
   String? _selectedFolderId;
 
   @override
   void initState() {
     super.initState();
+    _currentView = widget.openDocuments
+        ? _KnowledgeWorkspaceView.documents
+        : _KnowledgeWorkspaceView.assistant;
+    _controller = KnowledgeWorkspaceController(
+      sessionController: widget.sessionController,
+    )..addListener(_handleControllerChanged);
     _composerController.addListener(_refreshState);
     _documentSearchController.addListener(_refreshState);
+    unawaited(_controller.ensureLoaded());
   }
 
   @override
   void dispose() {
+    _controller
+      ..removeListener(_handleControllerChanged)
+      ..dispose();
     _composerController
       ..removeListener(_refreshState)
       ..dispose();
@@ -80,29 +97,60 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
     super.dispose();
   }
 
+  void _handleControllerChanged() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {});
+    if (_currentView == _KnowledgeWorkspaceView.assistant &&
+        (_messages.isNotEmpty || _isResponding)) {
+      _scrollToBottom();
+    }
+  }
+
   void _refreshState() {
     if (mounted) {
       setState(() {});
     }
   }
 
-  _KnowledgeConversation? get _activeConversation {
-    final activeId = _activeConversationId;
-    if (activeId == null) {
-      return null;
+  List<_AssistantPrompt> get _assistantPrompts {
+    final suggestedQuestions = _controller.suggestedQuestions;
+    if (suggestedQuestions.isEmpty ||
+        identical(
+          suggestedQuestions,
+          KnowledgeWorkspaceController.fallbackSuggestedQuestions,
+        )) {
+      return _prompts;
     }
 
-    for (final conversation in _conversationHistory) {
-      if (conversation.id == activeId) {
-        return conversation;
-      }
-    }
-
-    return null;
+    return suggestedQuestions
+        .map(
+          (question) => _AssistantPrompt(
+            title: question,
+            prompt: question,
+            icon: _promptIconFor(question),
+          ),
+        )
+        .toList(growable: false);
   }
 
+  List<_KnowledgeSpace> get _spaces =>
+      _controller.spaces.map(_adaptSpace).toList(growable: false);
+
+  List<_KnowledgeDocumentFile> get _documents =>
+      _controller.documents.map(_adaptDocument).toList(growable: false);
+
+  List<_KnowledgeConversation> get _conversationHistory =>
+      _controller.conversations.map(_adaptConversation).toList(growable: false);
+
+  bool get _isResponding => _controller.isAssistantBusy;
+
+  String? get _activeConversationId => _controller.activeConversationId;
+
   List<_AssistantMessage> get _messages =>
-      _activeConversation?.messages ?? const [];
+      _controller.messages.map(_adaptAssistantMessage).toList(growable: false);
 
   List<_KnowledgeConversation> get _sortedConversations {
     final conversations = List<_KnowledgeConversation>.from(
@@ -246,11 +294,10 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
 
   void _startNewChat() {
     setState(() {
-      _activeConversationId = null;
-      _isResponding = false;
       _composerController.clear();
       _currentView = _KnowledgeWorkspaceView.assistant;
     });
+    _controller.startNewConversation();
     if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
       Navigator.of(context).pop();
     }
@@ -258,53 +305,26 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
 
   void _openConversation(String conversationId) {
     setState(() {
-      _activeConversationId = conversationId;
       _currentView = _KnowledgeWorkspaceView.assistant;
     });
     if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
       Navigator.of(context).pop();
     }
+    unawaited(_controller.openConversation(conversationId));
     _scrollToBottom();
   }
 
-  Future<void> _sendMessage([String? seededPrompt]) async {
+  void _sendMessage([String? seededPrompt]) {
     final value = (seededPrompt ?? _composerController.text).trim();
     if (value.isEmpty || _isResponding) {
       return;
     }
 
-    var conversation = _activeConversation;
-    if (conversation == null) {
-      conversation = _KnowledgeConversation(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        title: _conversationTitleFor(value),
-        updatedAt: DateTime(2026, 4, 18, 9, 20),
-        messages: const [],
-      );
-      _conversationHistory.add(conversation);
-      _activeConversationId = conversation.id;
-    }
-
     setState(() {
-      conversation!.messages.add(_AssistantMessage.user(text: value));
-      conversation.updatedAt = DateTime.now();
       _composerController.clear();
-      _isResponding = true;
     });
 
-    _scrollToBottom();
-
-    await Future<void>.delayed(const Duration(milliseconds: 480));
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      conversation!.messages.add(_buildReply(value));
-      conversation.updatedAt = DateTime.now();
-      _isResponding = false;
-    });
-
+    unawaited(_controller.ask(value));
     _scrollToBottom();
   }
 
@@ -332,101 +352,6 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
     );
   }
 
-  _AssistantMessage _buildReply(String prompt) {
-    final normalized = prompt.toLowerCase();
-
-    if (normalized.contains('approval') || normalized.contains('pengadaan')) {
-      return const _AssistantMessage.assistant(
-        text:
-            'Alur umumnya: requester isi form pengadaan, head division review kebutuhan, finance validasi budget, lalu procurement proses vendor dan dokumen final. Fokus mobile utamanya ada pada justifikasi bisnis, budget owner, dan quotation.',
-        sources: [
-          _AssistantSource(
-            title: 'SOP Approval Pengadaan',
-            subtitle: 'Corporate Operations · SOP',
-            accentColor: AppColors.goldDeep,
-            documentId: 'doc-approval-procurement',
-          ),
-          _AssistantSource(
-            title: 'Panduan Vendor Onboarding',
-            subtitle: 'Procurement · Panduan',
-            accentColor: AppColors.emerald,
-            documentId: 'doc-vendor-onboarding',
-          ),
-        ],
-      );
-    }
-
-    if (normalized.contains('s21') || normalized.contains('akses')) {
-      return const _AssistantMessage.assistant(
-        text:
-            'Untuk akses user baru, biasanya dibutuhkan data user, role yang diminta, justifikasi akses, dan tanggal efektif. Setelah itu approval manager berjalan dulu, lalu validasi IT security dan IT operations sebelum akses aktif.',
-        sources: [
-          _AssistantSource(
-            title: 'Panduan Akses S21+',
-            subtitle: 'IT Security · Panduan',
-            accentColor: AppColors.blue,
-            documentId: 'doc-s21-access',
-          ),
-        ],
-      );
-    }
-
-    if (normalized.contains('vendor')) {
-      return const _AssistantMessage.assistant(
-        text:
-            'Dokumen yang umum diminta untuk vendor onboarding adalah identitas perusahaan, NPWP, rekening pembayaran, PIC vendor, dan dokumen legal pendukung. Kalau prosesnya melibatkan pembayaran, finance biasanya ikut validasi data rekening.',
-        sources: [
-          _AssistantSource(
-            title: 'Panduan Vendor Onboarding',
-            subtitle: 'Procurement · Panduan',
-            accentColor: AppColors.emerald,
-            documentId: 'doc-vendor-onboarding',
-          ),
-          _AssistantSource(
-            title: 'Checklist Due Diligence Vendor',
-            subtitle: 'Procurement · Checklist',
-            accentColor: AppColors.goldDeep,
-            documentId: 'doc-vendor-due-diligence',
-          ),
-        ],
-      );
-    }
-
-    if (normalized.contains('helpdesk') || normalized.contains('kritikal')) {
-      return const _AssistantMessage.assistant(
-        text:
-            'Checklist awal ticket helpdesk kritikal: identifikasi area terdampak, cek scope user atau device, catat waktu mulai incident, assign PIC aktif, dan update status berkala sampai mitigasi selesai. Untuk issue jaringan inti, escalation sebaiknya dilakukan paling awal.',
-        sources: [
-          _AssistantSource(
-            title: 'FAQ Helpdesk Internal',
-            subtitle: 'IT Support · FAQ',
-            accentColor: AppColors.red,
-            documentId: 'doc-helpdesk-faq',
-          ),
-          _AssistantSource(
-            title: 'Runbook Incident Kritikal',
-            subtitle: 'IT Support · Runbook',
-            accentColor: AppColors.red,
-            documentId: 'doc-incident-runbook',
-          ),
-        ],
-      );
-    }
-
-    return const _AssistantMessage.assistant(
-      text:
-          'Saya bisa bantu ringkas SOP, jelaskan alur approval, bantu cari knowledge item, atau buat checklist proses internal. Coba spesifikkan topiknya seperti approval, akses sistem, vendor onboarding, atau helpdesk.',
-      sources: [
-        _AssistantSource(
-          title: 'Knowledge Workspace GESIT',
-          subtitle: 'AI Assistant · Internal Workspace',
-          accentColor: AppColors.goldDeep,
-          documentId: 'doc-mobile-workspace',
-        ),
-      ],
-    );
-  }
-
   void _jumpToSource(_AssistantSource source) {
     final documentId = source.documentId;
     if (documentId == null) {
@@ -441,7 +366,7 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
     setState(() {
       _currentView = _KnowledgeWorkspaceView.documents;
       _selectedSpaceId = file.spaceId;
-      _selectedFolderId = file.folderId;
+      _selectedFolderId = _findFolderById(file.folderId)?.id;
       _documentFilter = _DocumentHubFilter.all;
     });
     _showFileProperties(file);
@@ -474,24 +399,42 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
   }
 
   void _toggleBookmark(String fileId) {
-    final file = _findDocumentById(fileId);
-    if (file == null) {
+    unawaited(_controller.toggleBookmark(fileId));
+  }
+
+  void _runMessageAction(_AssistantMessage message, _AssistantAction action) {
+    final sourceMessage = message.sourceMessage;
+    if (sourceMessage == null) {
       return;
     }
 
-    setState(() {
-      file.isBookmarked = !file.isBookmarked;
-    });
-  }
-
-  void _handleFileTap(_KnowledgeDocumentFile file) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Preview "${file.title}" siap disambungkan ke backend dokumen.',
-        ),
+    unawaited(
+      _controller.runMessageAction(
+        message: sourceMessage,
+        action: action.sourceAction,
       ),
     );
+  }
+
+  Future<void> _handleFileTap(_KnowledgeDocumentFile file) async {
+    final targetUrl = file.attachmentUrl ?? file.sourceLink;
+    if (targetUrl == null || targetUrl.trim().isEmpty) {
+      await _showFileProperties(file);
+      return;
+    }
+
+    final uri = Uri.tryParse(targetUrl);
+    if (uri == null) {
+      await _showFileProperties(file);
+      return;
+    }
+
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Dokumen "${file.title}" belum bisa dibuka.')),
+      );
+    }
   }
 
   Future<void> _showFileProperties(_KnowledgeDocumentFile file) async {
@@ -538,11 +481,16 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
                 ),
                 const SizedBox(height: 14),
                 _DetailInfoRow(label: 'Type', value: file.typeLabel),
-                _DetailInfoRow(label: 'Size', value: file.sizeLabel),
+                _DetailInfoRow(label: 'Format', value: file.sizeLabel),
                 _DetailInfoRow(
                   label: 'Terakhir diakses',
                   value: file.lastAccessedLabel,
                 ),
+                if (file.attachmentName != null)
+                  _DetailInfoRow(
+                    label: 'Lampiran',
+                    value: file.attachmentName!,
+                  ),
                 _DetailInfoRow(
                   label: 'Favorit',
                   value: file.isBookmarked ? 'Ya' : 'Tidak',
@@ -631,14 +579,6 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
     return null;
   }
 
-  String _conversationTitleFor(String prompt) {
-    final trimmed = prompt.trim();
-    if (trimmed.length <= 34) {
-      return trimmed;
-    }
-    return '${trimmed.substring(0, 34).trimRight()}...';
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -672,7 +612,8 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
   }
 
   Widget _buildAssistantView() {
-    final canSend = _composerController.text.trim().isNotEmpty;
+    final canSend =
+        _composerController.text.trim().isNotEmpty && !_isResponding;
 
     return Column(
       key: const ValueKey('assistant-workspace'),
@@ -689,11 +630,15 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
             switchInCurve: Curves.easeOutCubic,
             switchOutCurve: Curves.easeInCubic,
             child: _messages.isEmpty
-                ? _AssistantEmptyState(
-                    key: const ValueKey('assistant-empty'),
-                    prompts: _prompts,
-                    onPromptTap: _sendMessage,
-                  )
+                ? _controller.isLoading && !_controller.loaded
+                      ? const _AssistantLoadingState(
+                          key: ValueKey('assistant-loading'),
+                        )
+                      : _AssistantEmptyState(
+                          key: const ValueKey('assistant-empty'),
+                          prompts: _assistantPrompts,
+                          onPromptTap: _sendMessage,
+                        )
                 : ListView.separated(
                     key: ValueKey(
                       'assistant-${_activeConversationId ?? 'draft'}',
@@ -703,12 +648,16 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
                     itemBuilder: (context, index) {
                       if (index == _messages.length) {
-                        return const _AssistantTypingCard();
+                        return _AssistantTypingCard(
+                          label: _controller.assistantLoadingMessage,
+                        );
                       }
 
                       return _AssistantThreadItem(
                         message: _messages[index],
                         onSourceTap: _jumpToSource,
+                        actionsEnabled: !_isResponding,
+                        onActionTap: _runMessageAction,
                       );
                     },
                     separatorBuilder: (_, __) => const SizedBox(height: 14),
@@ -716,6 +665,19 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
                   ),
           ),
         ),
+        if (_controller.errorMessage != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+            child: _KnowledgeInlineError(
+              message: _controller.errorMessage!,
+              actionLabel: _controller.canRetryLastQuestion
+                  ? 'Coba lagi'
+                  : 'Muat ulang',
+              onRetry: _controller.canRetryLastQuestion
+                  ? () => unawaited(_controller.retryLastQuestion())
+                  : () => unawaited(_controller.refresh()),
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 8, 14, 18),
           child: Row(
@@ -811,75 +773,85 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
           ),
         ),
         Expanded(
-          child: ListView(
-            physics: const ClampingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-            children: [
-              _DocumentBreadcrumbs(
-                space: _selectedSpace,
-                folder: _selectedFolder,
-                onRootTap: _goToDocumentRoot,
-                onSpaceTap: _selectedSpace == null
-                    ? null
-                    : () => _selectSpace(_selectedSpace!.id),
-              ),
-              const SizedBox(height: 18),
-              if (_visibleFolders.isNotEmpty) ...[
-                _DriveSectionLabel(
-                  title: _selectedSpace == null
-                      ? 'Folders'
-                      : _selectedSpace!.name,
-                ),
-                const SizedBox(height: 12),
-                _DriveFolderGrid(
-                  folders: _visibleFolders,
-                  onTap: _selectFolder,
-                ),
-              ],
-              if (_recentFiles.isNotEmpty && _selectedSpaceId == null) ...[
-                const SizedBox(height: 22),
-                const _DriveSectionLabel(title: 'Recent'),
-                const SizedBox(height: 12),
-                ..._recentFiles.map((file) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _DriveFileTile(
-                      file: file,
-                      onTap: () => _handleFileTap(file),
-                      onShowProperties: () => _showFileProperties(file),
-                      onToggleBookmark: () => _toggleBookmark(file.id),
+          child: _controller.isLoading && !_controller.loaded
+              ? const _DocumentLoadingState()
+              : ListView(
+                  physics: const ClampingScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+                  children: [
+                    if (_controller.errorMessage != null) ...[
+                      _KnowledgeInlineError(
+                        message: _controller.errorMessage!,
+                        onRetry: () => unawaited(_controller.refresh()),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    _DocumentBreadcrumbs(
+                      space: _selectedSpace,
+                      folder: _selectedFolder,
+                      onRootTap: _goToDocumentRoot,
+                      onSpaceTap: _selectedSpace == null
+                          ? null
+                          : () => _selectSpace(_selectedSpace!.id),
                     ),
-                  );
-                }),
-              ],
-              if (_visibleFiles.isNotEmpty) ...[
-                const SizedBox(height: 22),
-                _DriveSectionLabel(
-                  title: _selectedSpaceId == null ? 'All Files' : 'Files',
+                    const SizedBox(height: 18),
+                    if (_visibleFolders.isNotEmpty) ...[
+                      _DriveSectionLabel(
+                        title: _selectedSpace == null
+                            ? 'Folders'
+                            : _selectedSpace!.name,
+                      ),
+                      const SizedBox(height: 12),
+                      _DriveFolderGrid(
+                        folders: _visibleFolders,
+                        onTap: _selectFolder,
+                      ),
+                    ],
+                    if (_recentFiles.isNotEmpty &&
+                        _selectedSpaceId == null) ...[
+                      const SizedBox(height: 22),
+                      const _DriveSectionLabel(title: 'Recent'),
+                      const SizedBox(height: 12),
+                      ..._recentFiles.map((file) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _DriveFileTile(
+                            file: file,
+                            onTap: () => unawaited(_handleFileTap(file)),
+                            onShowProperties: () => _showFileProperties(file),
+                            onToggleBookmark: () => _toggleBookmark(file.id),
+                          ),
+                        );
+                      }),
+                    ],
+                    if (_visibleFiles.isNotEmpty) ...[
+                      const SizedBox(height: 22),
+                      _DriveSectionLabel(
+                        title: _selectedSpaceId == null ? 'All Files' : 'Files',
+                      ),
+                      const SizedBox(height: 12),
+                      ..._visibleFiles.map((file) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _DriveFileTile(
+                            file: file,
+                            onTap: () => unawaited(_handleFileTap(file)),
+                            onShowProperties: () => _showFileProperties(file),
+                            onToggleBookmark: () => _toggleBookmark(file.id),
+                          ),
+                        );
+                      }),
+                    ],
+                    if (_visibleFolders.isEmpty &&
+                        _recentFiles.isEmpty &&
+                        _visibleFiles.isEmpty)
+                      _DocumentEmptyState(
+                        title: 'Tidak ada hasil yang cocok',
+                        subtitle:
+                            'Ubah kata kunci pencarian atau pindah ke folder lain untuk melihat file yang tersedia.',
+                      ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                ..._visibleFiles.map((file) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _DriveFileTile(
-                      file: file,
-                      onTap: () => _handleFileTap(file),
-                      onShowProperties: () => _showFileProperties(file),
-                      onToggleBookmark: () => _toggleBookmark(file.id),
-                    ),
-                  );
-                }),
-              ],
-              if (_visibleFolders.isEmpty &&
-                  _recentFiles.isEmpty &&
-                  _visibleFiles.isEmpty)
-                _DocumentEmptyState(
-                  title: 'Tidak ada hasil yang cocok',
-                  subtitle:
-                      'Ubah kata kunci pencarian atau pindah ke folder lain untuk melihat file yang tersedia.',
-                ),
-            ],
-          ),
         ),
       ],
     );
@@ -1576,6 +1548,99 @@ class _DetailInfoRow extends StatelessWidget {
   }
 }
 
+class _AssistantLoadingState extends StatelessWidget {
+  const _AssistantLoadingState({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: BrandSurface(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Memuat knowledge workspace...',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DocumentLoadingState extends StatelessWidget {
+  const _DocumentLoadingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: BrandSurface(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Memuat dokumen...',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _KnowledgeInlineError extends StatelessWidget {
+  const _KnowledgeInlineError({
+    required this.message,
+    required this.onRetry,
+    this.actionLabel = 'Muat ulang',
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+  final String actionLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return BrandSurface(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      backgroundColor: AppColors.surfaceAlt,
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline_rounded, color: AppColors.goldDeep),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.ink,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          TextButton(onPressed: onRetry, child: Text(actionLabel)),
+        ],
+      ),
+    );
+  }
+}
+
 class _AssistantEmptyState extends StatelessWidget {
   const _AssistantEmptyState({
     super.key,
@@ -1843,10 +1908,15 @@ class _AssistantThreadItem extends StatelessWidget {
   const _AssistantThreadItem({
     required this.message,
     required this.onSourceTap,
+    required this.actionsEnabled,
+    required this.onActionTap,
   });
 
   final _AssistantMessage message;
   final ValueChanged<_AssistantSource> onSourceTap;
+  final bool actionsEnabled;
+  final void Function(_AssistantMessage message, _AssistantAction action)
+  onActionTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1881,7 +1951,7 @@ class _AssistantThreadItem extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Assistant',
+            'Asisten',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: AppColors.goldDeep,
               fontWeight: FontWeight.w800,
@@ -1917,8 +1987,60 @@ class _AssistantThreadItem extends StatelessWidget {
                 const SizedBox(height: 10),
             ],
           ],
+          if (message.sourceClosing != null) ...[
+            const SizedBox(height: 14),
+            Text(
+              message.sourceClosing!,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: AppColors.ink,
+                height: 1.55,
+              ),
+            ),
+          ],
+          if (message.actions.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final action in message.actions)
+                  _AssistantActionButton(
+                    action: action,
+                    enabled: actionsEnabled,
+                    onTap: () => onActionTap(message, action),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+class _AssistantActionButton extends StatelessWidget {
+  const _AssistantActionButton({
+    required this.action,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final _AssistantAction action;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (action.sourceAction.isPrimary) {
+      return FilledButton(
+        onPressed: enabled ? onTap : null,
+        child: Text(action.label),
+      );
+    }
+
+    return OutlinedButton(
+      onPressed: enabled ? onTap : null,
+      child: Text(action.label),
     );
   }
 }
@@ -2004,7 +2126,9 @@ class _AssistantSourceCard extends StatelessWidget {
 }
 
 class _AssistantTypingCard extends StatelessWidget {
-  const _AssistantTypingCard();
+  const _AssistantTypingCard({required this.label});
+
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -2019,7 +2143,7 @@ class _AssistantTypingCard extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Text(
-            'Assistant sedang menyiapkan jawaban...',
+            label,
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: AppColors.inkSoft),
@@ -2060,7 +2184,10 @@ class _AssistantMessage {
   const _AssistantMessage._({
     required this.text,
     required this.isUser,
+    this.sourceMessage,
+    this.sourceClosing,
     this.sources = const [],
+    this.actions = const [],
   });
 
   const _AssistantMessage.user({required String text})
@@ -2068,12 +2195,32 @@ class _AssistantMessage {
 
   const _AssistantMessage.assistant({
     required String text,
+    KnowledgeAssistantMessage? sourceMessage,
+    String? sourceClosing,
     List<_AssistantSource> sources = const [],
-  }) : this._(text: text, isUser: false, sources: sources);
+    List<_AssistantAction> actions = const [],
+  }) : this._(
+         text: text,
+         isUser: false,
+         sourceMessage: sourceMessage,
+         sourceClosing: sourceClosing,
+         sources: sources,
+         actions: actions,
+       );
 
   final String text;
   final bool isUser;
+  final KnowledgeAssistantMessage? sourceMessage;
+  final String? sourceClosing;
   final List<_AssistantSource> sources;
+  final List<_AssistantAction> actions;
+}
+
+class _AssistantAction {
+  const _AssistantAction({required this.label, required this.sourceAction});
+
+  final String label;
+  final KnowledgeConversationAction sourceAction;
 }
 
 class _KnowledgeConversation {
@@ -2144,6 +2291,9 @@ class _KnowledgeDocumentFile {
     required this.icon,
     required this.typeColor,
     required this.updatedAt,
+    this.attachmentUrl,
+    this.attachmentName,
+    this.sourceLink,
     this.isBookmarked = false,
   });
 
@@ -2162,308 +2312,220 @@ class _KnowledgeDocumentFile {
   final IconData icon;
   final Color typeColor;
   final DateTime updatedAt;
+  final String? attachmentUrl;
+  final String? attachmentName;
+  final String? sourceLink;
   bool isBookmarked;
 }
 
-List<_KnowledgeConversation> _buildSeedConversations() {
-  return [
-    _KnowledgeConversation(
-      id: 'conv-s21-access',
-      title: 'Akses S21+ User Baru',
-      updatedAt: DateTime(2026, 4, 18, 9, 10),
-      messages: const [
-        _AssistantMessage.user(text: 'Bagaimana proses akses S21+ user baru?'),
-        _AssistantMessage.assistant(
-          text:
-              'Untuk akses user baru, biasanya dibutuhkan data user, role yang diminta, justifikasi akses, dan tanggal efektif. Setelah itu approval manager berjalan dulu, lalu validasi IT security dan IT operations sebelum akses aktif.',
-          sources: [
-            _AssistantSource(
-              title: 'Panduan Akses S21+',
-              subtitle: 'IT Security · Panduan',
-              accentColor: AppColors.blue,
-              documentId: 'doc-s21-access',
-            ),
-          ],
-        ),
-      ],
-    ),
-    _KnowledgeConversation(
-      id: 'conv-vendor-onboarding',
-      title: 'Vendor Onboarding',
-      updatedAt: DateTime(2026, 4, 17, 15, 42),
-      messages: const [
-        _AssistantMessage.user(
-          text: 'Dokumen apa yang dibutuhkan vendor onboarding?',
-        ),
-        _AssistantMessage.assistant(
-          text:
-              'Dokumen yang umum diminta adalah identitas perusahaan, NPWP, rekening pembayaran, PIC vendor, dan dokumen legal pendukung. Finance biasanya ikut validasi rekening dan kelengkapan dokumen.',
-          sources: [
-            _AssistantSource(
-              title: 'Panduan Vendor Onboarding',
-              subtitle: 'Procurement · Panduan',
-              accentColor: AppColors.emerald,
-              documentId: 'doc-vendor-onboarding',
-            ),
-            _AssistantSource(
-              title: 'Checklist Due Diligence Vendor',
-              subtitle: 'Procurement · Checklist',
-              accentColor: AppColors.goldDeep,
-              documentId: 'doc-vendor-due-diligence',
-            ),
-          ],
-        ),
-      ],
-    ),
-    _KnowledgeConversation(
-      id: 'conv-helpdesk',
-      title: 'Helpdesk Kritikal',
-      updatedAt: DateTime(2026, 4, 16, 11, 28),
-      messages: const [
-        _AssistantMessage.user(text: 'Buat checklist helpdesk kritikal'),
-        _AssistantMessage.assistant(
-          text:
-              'Checklist awal ticket helpdesk kritikal: identifikasi area terdampak, cek scope user atau device, catat waktu mulai incident, assign PIC aktif, dan update status berkala sampai mitigasi selesai.',
-          sources: [
-            _AssistantSource(
-              title: 'Runbook Incident Kritikal',
-              subtitle: 'IT Support · Runbook',
-              accentColor: AppColors.red,
-              documentId: 'doc-incident-runbook',
-            ),
-          ],
-        ),
-      ],
-    ),
-  ];
+_KnowledgeSpace _adaptSpace(KnowledgeHubSpace space) {
+  final accentColor = _spaceAccentColor(space);
+  return _KnowledgeSpace(
+    id: space.id,
+    name: space.name,
+    description: space.description,
+    icon: _spaceIconFor(space),
+    accentColor: accentColor,
+    folders: space.folders.map(_adaptFolder).toList(growable: false),
+  );
 }
 
-List<_KnowledgeSpace> _buildDemoSpaces() {
-  return const [
-    _KnowledgeSpace(
-      id: 'space-ops',
-      name: 'Corporate Operations',
-      description: 'SOP approval, procurement, dan workflow operasional.',
-      icon: Icons.apartment_rounded,
-      accentColor: AppColors.goldDeep,
-      folders: [
-        _KnowledgeFolder(
-          id: 'folder-procurement',
-          spaceId: 'space-ops',
-          name: 'Procurement',
-          caption: 'SOP pembelian, approval, dan quotation',
-          updatedLabel: 'Hari ini',
-        ),
-        _KnowledgeFolder(
-          id: 'folder-policy',
-          spaceId: 'space-ops',
-          name: 'Policy & SOP',
-          caption: 'Panduan operasional lintas divisi',
-          updatedLabel: '17 Apr',
-        ),
-      ],
-    ),
-    _KnowledgeSpace(
-      id: 'space-it',
-      name: 'IT Security',
-      description: 'Akses sistem, security baseline, dan runbook teknis.',
-      icon: Icons.shield_rounded,
-      accentColor: AppColors.blue,
-      folders: [
-        _KnowledgeFolder(
-          id: 'folder-access',
-          spaceId: 'space-it',
-          name: 'Access Management',
-          caption: 'Provisioning user, role, dan review akses',
-          updatedLabel: 'Hari ini',
-        ),
-        _KnowledgeFolder(
-          id: 'folder-runbook',
-          spaceId: 'space-it',
-          name: 'Runbook',
-          caption: 'Incident handling dan checklist recovery',
-          updatedLabel: '16 Apr',
-        ),
-      ],
-    ),
-    _KnowledgeSpace(
-      id: 'space-proc',
-      name: 'Procurement',
-      description: 'Vendor onboarding, due diligence, dan legal support.',
-      icon: Icons.inventory_2_rounded,
-      accentColor: AppColors.emerald,
-      folders: [
-        _KnowledgeFolder(
-          id: 'folder-vendor',
-          spaceId: 'space-proc',
-          name: 'Vendor Onboarding',
-          caption: 'Dokumen vendor dan checklist legal',
-          updatedLabel: '17 Apr',
-        ),
-        _KnowledgeFolder(
-          id: 'folder-contract',
-          spaceId: 'space-proc',
-          name: 'Contract Support',
-          caption: 'Template kontrak dan lampiran pendukung',
-          updatedLabel: '15 Apr',
-        ),
-      ],
-    ),
-  ];
+_KnowledgeFolder _adaptFolder(KnowledgeHubFolder folder) {
+  return _KnowledgeFolder(
+    id: folder.id,
+    spaceId: folder.spaceId,
+    name: folder.name,
+    caption: folder.description.isEmpty
+        ? '${folder.entryCount} dokumen'
+        : folder.description,
+    updatedLabel: '${folder.entryCount} item',
+  );
 }
 
-List<_KnowledgeDocumentFile> _buildDemoDocuments() {
-  return [
-    _KnowledgeDocumentFile(
-      id: 'doc-approval-procurement',
-      spaceId: 'space-ops',
-      folderId: 'folder-procurement',
-      title: 'SOP Approval Pengadaan',
-      summary: 'Alur approval pengadaan, budget owner, dan lampiran quotation.',
-      typeLabel: 'PDF',
-      pathLabel: 'Corporate Operations / Procurement',
-      sizeLabel: '1.4 MB',
-      updatedLabel: 'Hari ini',
-      lastAccessedLabel: 'Hari ini, 08.40',
-      ownerLabel: 'Operations Team',
-      previewText:
-          'Dokumen ini menjelaskan alur pengadaan dari tahap request, review head division, validasi budget, hingga procurement execution. Bagian utama yang paling sering dibutuhkan di mobile biasanya justifikasi bisnis, budget owner, dan kelengkapan quotation.',
-      icon: Icons.picture_as_pdf_rounded,
-      typeColor: AppColors.red,
-      updatedAt: DateTime(2026, 4, 18, 8, 40),
-      isBookmarked: true,
-    ),
-    _KnowledgeDocumentFile(
-      id: 'doc-mobile-workspace',
-      spaceId: 'space-ops',
-      folderId: 'folder-policy',
-      title: 'Knowledge Workspace Mobile Notes',
-      summary:
-          'Catatan arsitektur workspace mobile untuk AI Assistant dan document hub.',
-      typeLabel: 'DOC',
-      pathLabel: 'Corporate Operations / Policy & SOP',
-      sizeLabel: '824 KB',
-      updatedLabel: 'Hari ini',
-      lastAccessedLabel: 'Hari ini, 08.10',
-      ownerLabel: 'Product Team',
-      previewText:
-          'Catatan ini merangkum keputusan UX mobile: Knowledge Hub langsung masuk AI Assistant, history chat ada di drawer, dan Smart Document Hub dipisah dengan interaction pattern ala Google Drive mobile.',
-      icon: Icons.description_rounded,
-      typeColor: AppColors.goldDeep,
-      updatedAt: DateTime(2026, 4, 18, 8, 10),
-    ),
-    _KnowledgeDocumentFile(
-      id: 'doc-s21-access',
-      spaceId: 'space-it',
-      folderId: 'folder-access',
-      title: 'Panduan Akses S21+',
-      summary: 'Panduan role, request akses, approval, dan aktivasi akun baru.',
-      typeLabel: 'PDF',
-      pathLabel: 'IT Security / Access Management',
-      sizeLabel: '2.1 MB',
-      updatedLabel: 'Hari ini',
-      lastAccessedLabel: 'Hari ini, 07.48',
-      ownerLabel: 'IT Security',
-      previewText:
-          'Panduan ini mencakup proses request akses user baru, mapping role, approval manager, validasi IT security, dan aktivasi oleh IT operations. Dipakai sebagai rujukan utama untuk provisioning user di mobile assistant.',
-      icon: Icons.picture_as_pdf_rounded,
-      typeColor: AppColors.blue,
-      updatedAt: DateTime(2026, 4, 18, 7, 48),
-      isBookmarked: true,
-    ),
-    _KnowledgeDocumentFile(
-      id: 'doc-incident-runbook',
-      spaceId: 'space-it',
-      folderId: 'folder-runbook',
-      title: 'Runbook Incident Kritikal',
-      summary:
-          'Checklist awal incident, escalation path, dan koordinasi mitigasi.',
-      typeLabel: 'DOC',
-      pathLabel: 'IT Security / Runbook',
-      sizeLabel: '1.0 MB',
-      updatedLabel: '16 Apr',
-      lastAccessedLabel: '16 Apr 2026, 13.12',
-      ownerLabel: 'IT Support',
-      previewText:
-          'Runbook ini menekankan identifikasi area terdampak, pencatatan timeline, assignment PIC, dan pola komunikasi sampai service recovery selesai. Cocok dijadikan quick reference saat incident kritikal berjalan.',
-      icon: Icons.description_rounded,
-      typeColor: AppColors.red,
-      updatedAt: DateTime(2026, 4, 16, 13, 12),
-    ),
-    _KnowledgeDocumentFile(
-      id: 'doc-helpdesk-faq',
-      spaceId: 'space-it',
-      folderId: 'folder-runbook',
-      title: 'FAQ Helpdesk Internal',
-      summary: 'FAQ kategori ticket, SLA, dan respon awal dari tim support.',
-      typeLabel: 'SHEET',
-      pathLabel: 'IT Security / Runbook',
-      sizeLabel: '612 KB',
-      updatedLabel: '15 Apr',
-      lastAccessedLabel: '15 Apr 2026, 10.05',
-      ownerLabel: 'IT Support',
-      previewText:
-          'FAQ ini merangkum kategori ticket internal, SLA standar, dan respon awal per jenis insiden. Kontennya dipakai untuk mengarahkan assistant saat memberi checklist quick triage.',
-      icon: Icons.grid_view_rounded,
-      typeColor: AppColors.red,
-      updatedAt: DateTime(2026, 4, 15, 10, 5),
-    ),
-    _KnowledgeDocumentFile(
-      id: 'doc-vendor-onboarding',
-      spaceId: 'space-proc',
-      folderId: 'folder-vendor',
-      title: 'Panduan Vendor Onboarding',
-      summary:
-          'Dokumen vendor, legal checks, dan validasi rekening pembayaran.',
-      typeLabel: 'PDF',
-      pathLabel: 'Procurement / Vendor Onboarding',
-      sizeLabel: '1.8 MB',
-      updatedLabel: '17 Apr',
-      lastAccessedLabel: '17 Apr 2026, 16.22',
-      ownerLabel: 'Procurement Team',
-      previewText:
-          'Panduan onboarding vendor berisi daftar dokumen legal, data rekening, NPWP, identitas perusahaan, dan PIC vendor. Finance dan procurement memakai dokumen ini sebagai sumber validasi utama.',
-      icon: Icons.picture_as_pdf_rounded,
-      typeColor: AppColors.emerald,
-      updatedAt: DateTime(2026, 4, 17, 16, 22),
-      isBookmarked: true,
-    ),
-    _KnowledgeDocumentFile(
-      id: 'doc-vendor-due-diligence',
-      spaceId: 'space-proc',
-      folderId: 'folder-vendor',
-      title: 'Checklist Due Diligence Vendor',
-      summary: 'Checklist legal dan operasional untuk evaluasi vendor baru.',
-      typeLabel: 'DOC',
-      pathLabel: 'Procurement / Vendor Onboarding',
-      sizeLabel: '736 KB',
-      updatedLabel: '16 Apr',
-      lastAccessedLabel: '16 Apr 2026, 09.34',
-      ownerLabel: 'Legal Support',
-      previewText:
-          'Checklist due diligence ini dipakai untuk memastikan legalitas, kelengkapan dokumen, reputasi vendor, dan kesiapan data pembayaran sebelum vendor diaktifkan di workflow procurement.',
-      icon: Icons.description_rounded,
-      typeColor: AppColors.goldDeep,
-      updatedAt: DateTime(2026, 4, 16, 9, 34),
-    ),
-    _KnowledgeDocumentFile(
-      id: 'doc-contract-template',
-      spaceId: 'space-proc',
-      folderId: 'folder-contract',
-      title: 'Template Kontrak Vendor',
-      summary:
-          'Template dasar kontrak kerja sama beserta daftar lampiran standar.',
-      typeLabel: 'DOC',
-      pathLabel: 'Procurement / Contract Support',
-      sizeLabel: '942 KB',
-      updatedLabel: '15 Apr',
-      lastAccessedLabel: '15 Apr 2026, 14.12',
-      ownerLabel: 'Legal Support',
-      previewText:
-          'Template ini dipakai saat procurement sudah masuk tahap finalisasi kerja sama. Struktur lampiran dan klausul utamanya dibuat supaya mudah dipakai lintas vendor dengan penyesuaian terbatas.',
-      icon: Icons.description_rounded,
-      typeColor: AppColors.emerald,
-      updatedAt: DateTime(2026, 4, 15, 14, 12),
-    ),
-  ];
+_KnowledgeDocumentFile _adaptDocument(KnowledgeHubDocument document) {
+  final typeColor = _documentTypeColor(document);
+  final previewText = document.body.trim().isNotEmpty
+      ? document.body.trim()
+      : document.summary.trim();
+  final formatLabel =
+      document.attachmentMime ??
+      document.sourceKindLabel.trim().ifEmpty('Knowledge entry');
+
+  return _KnowledgeDocumentFile(
+    id: document.id,
+    spaceId: document.spaceId,
+    folderId: document.folderId,
+    title: document.title,
+    summary: document.summary,
+    typeLabel: document.typeLabel,
+    pathLabel: document.pathLabel,
+    sizeLabel: formatLabel,
+    updatedLabel: _dateLabel(document.updatedAt),
+    lastAccessedLabel: _dateLabel(document.updatedAt),
+    ownerLabel: document.ownerLabel,
+    previewText: previewText.isEmpty
+        ? 'Konten detail dokumen belum tersedia.'
+        : previewText,
+    icon: _documentIconFor(document),
+    typeColor: typeColor,
+    updatedAt: document.updatedAt,
+    attachmentUrl: document.attachmentUrl,
+    attachmentName: document.attachmentName,
+    sourceLink: document.sourceLink,
+    isBookmarked: document.isBookmarked,
+  );
+}
+
+_KnowledgeConversation _adaptConversation(
+  KnowledgeConversationSummary conversation,
+) {
+  return _KnowledgeConversation(
+    id: conversation.id,
+    title: conversation.title,
+    updatedAt: conversation.updatedAt,
+    messages: conversation.preview.trim().isEmpty
+        ? const <_AssistantMessage>[]
+        : [_AssistantMessage.assistant(text: conversation.preview)],
+  );
+}
+
+_AssistantMessage _adaptAssistantMessage(KnowledgeAssistantMessage message) {
+  if (message.isUser) {
+    return _AssistantMessage.user(text: message.text);
+  }
+
+  return _AssistantMessage.assistant(
+    text: message.text,
+    sourceMessage: message,
+    sourceClosing: message.sourceClosing,
+    sources: message.sources.map(_adaptAssistantSource).toList(growable: false),
+    actions: message.actions.map(_adaptAssistantAction).toList(growable: false),
+  );
+}
+
+_AssistantSource _adaptAssistantSource(KnowledgeAssistantSource source) {
+  return _AssistantSource(
+    title: source.title,
+    subtitle: source.subtitle,
+    accentColor: _sourceAccentColor(source),
+    documentId: source.documentId,
+  );
+}
+
+_AssistantAction _adaptAssistantAction(KnowledgeConversationAction action) {
+  return _AssistantAction(label: action.label, sourceAction: action);
+}
+
+IconData _promptIconFor(String question) {
+  final normalized = question.toLowerCase();
+  if (normalized.contains('akses') || normalized.contains('s21')) {
+    return Icons.lock_open_rounded;
+  }
+  if (normalized.contains('dokumen') || normalized.contains('onboarding')) {
+    return Icons.folder_copy_rounded;
+  }
+  if (normalized.contains('helpdesk') || normalized.contains('ticket')) {
+    return Icons.support_agent_rounded;
+  }
+  return Icons.fact_check_rounded;
+}
+
+IconData _spaceIconFor(KnowledgeHubSpace space) {
+  final normalized = '${space.iconKey} ${space.name}'.toLowerCase();
+  if (normalized.contains('shield') || normalized.contains('security')) {
+    return Icons.shield_rounded;
+  }
+  if (normalized.contains('it') || normalized.contains('tech')) {
+    return Icons.dns_rounded;
+  }
+  if (normalized.contains('finance') || normalized.contains('accounting')) {
+    return Icons.account_balance_wallet_rounded;
+  }
+  if (normalized.contains('procurement') || normalized.contains('vendor')) {
+    return Icons.inventory_2_rounded;
+  }
+  return Icons.apartment_rounded;
+}
+
+Color _spaceAccentColor(KnowledgeHubSpace space) {
+  final normalized = '${space.name} ${space.kind}'.toLowerCase();
+  if (normalized.contains('it') || normalized.contains('security')) {
+    return AppColors.blue;
+  }
+  if (normalized.contains('procurement') || normalized.contains('vendor')) {
+    return AppColors.emerald;
+  }
+  if (normalized.contains('helpdesk') || normalized.contains('incident')) {
+    return AppColors.red;
+  }
+  return AppColors.goldDeep;
+}
+
+IconData _documentIconFor(KnowledgeHubDocument document) {
+  final normalized =
+      '${document.type} ${document.typeLabel} ${document.attachmentMime ?? ''}'
+          .toLowerCase();
+  if (normalized.contains('pdf')) {
+    return Icons.picture_as_pdf_rounded;
+  }
+  if (normalized.contains('sheet') || normalized.contains('excel')) {
+    return Icons.grid_view_rounded;
+  }
+  if (normalized.contains('image')) {
+    return Icons.image_rounded;
+  }
+  return Icons.description_rounded;
+}
+
+Color _documentTypeColor(KnowledgeHubDocument document) {
+  final normalized = '${document.type} ${document.typeLabel}'.toLowerCase();
+  if (normalized.contains('troubleshooting') ||
+      normalized.contains('incident')) {
+    return AppColors.red;
+  }
+  if (normalized.contains('onboarding') || normalized.contains('vendor')) {
+    return AppColors.emerald;
+  }
+  if (normalized.contains('policy') || normalized.contains('jobdesk')) {
+    return AppColors.blue;
+  }
+  if (normalized.contains('pdf')) {
+    return AppColors.red;
+  }
+  return AppColors.goldDeep;
+}
+
+Color _sourceAccentColor(KnowledgeAssistantSource source) {
+  final normalized = '${source.title} ${source.subtitle}'.toLowerCase();
+  if (normalized.contains('it') || normalized.contains('security')) {
+    return AppColors.blue;
+  }
+  if (normalized.contains('vendor') || normalized.contains('procurement')) {
+    return AppColors.emerald;
+  }
+  if (normalized.contains('helpdesk') || normalized.contains('incident')) {
+    return AppColors.red;
+  }
+  return AppColors.goldDeep;
+}
+
+String _dateLabel(DateTime date) {
+  if (date.millisecondsSinceEpoch == 0) {
+    return 'Belum tercatat';
+  }
+
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final normalizedDate = DateTime(date.year, date.month, date.day);
+  if (normalizedDate == today) {
+    return 'Hari ini';
+  }
+
+  final day = date.day.toString().padLeft(2, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  return '$day/$month/${date.year}';
+}
+
+extension _BlankStringX on String {
+  String ifEmpty(String fallback) => isEmpty ? fallback : this;
 }

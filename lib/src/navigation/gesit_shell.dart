@@ -5,14 +5,17 @@ import 'package:flutter/material.dart';
 import '../data/app_session_controller.dart';
 import '../data/chat_call_media_engine.dart';
 import '../data/chat_workspace_controller.dart';
+import '../data/feed_controller.dart';
 import '../data/gesit_api_client.dart';
 import '../data/notification_center_controller.dart';
 import '../data/workspace_data_controller.dart';
 import '../models/app_models.dart';
+import '../models/feed_models.dart';
 import '../models/session_models.dart';
 import '../screens/chat/chat_call_screen.dart';
 import '../screens/chat/chat_conversation_screen.dart';
 import '../screens/chat/chat_hub_screen.dart';
+import '../screens/feed_thread_screen.dart';
 import '../screens/chat/group_detail_screen.dart';
 import '../screens/forms_screen.dart';
 import '../screens/helpdesk_screen.dart';
@@ -43,6 +46,7 @@ class _GesitShellState extends State<GesitShell>
   late final NotificationCenterController _notificationController;
   late final WorkspaceDataController _workspaceController;
   late final ChatWorkspaceController _chatController;
+  late final FeedController _feedController;
 
   @override
   void initState() {
@@ -54,6 +58,9 @@ class _GesitShellState extends State<GesitShell>
       callMediaEngine: WebRtcChatCallMediaEngine(),
     )..ensureLoaded();
     _workspaceController = WorkspaceDataController(
+      sessionController: widget.sessionController,
+    )..ensureLoaded();
+    _feedController = FeedController(
       sessionController: widget.sessionController,
     )..ensureLoaded();
     _tabTransitionController =
@@ -71,6 +78,7 @@ class _GesitShellState extends State<GesitShell>
   void dispose() {
     _chatController.dispose();
     _workspaceController.dispose();
+    _feedController.dispose();
     _notificationController.dispose();
     _tabTransitionController.dispose();
     super.dispose();
@@ -101,12 +109,28 @@ class _GesitShellState extends State<GesitShell>
     pushBrandedRoute(context, const HelpdeskScreen());
   }
 
+  void _openFeedThread(FeedPost post) {
+    pushBrandedRoute(
+      context,
+      FeedThreadScreen(controller: _feedController, postId: post.id),
+    );
+  }
+
   void _openKnowledgeHub() {
-    pushBrandedRoute(context, const KnowledgeWorkspaceScreen());
+    pushBrandedRoute(
+      context,
+      KnowledgeWorkspaceScreen(
+        sessionController: widget.sessionController,
+        openDocuments: true,
+      ),
+    );
   }
 
   void _openAiAssist() {
-    pushBrandedRoute(context, const KnowledgeWorkspaceScreen());
+    pushBrandedRoute(
+      context,
+      KnowledgeWorkspaceScreen(sessionController: widget.sessionController),
+    );
   }
 
   void _openConversation(ConversationPreview conversation) {
@@ -301,6 +325,7 @@ class _GesitShellState extends State<GesitShell>
         _notificationController,
         _chatController,
         _workspaceController,
+        _feedController,
       ]),
       builder: (context, _) {
         final session = _session;
@@ -329,6 +354,7 @@ class _GesitShellState extends State<GesitShell>
             userName: session.user.name,
             userInitials: session.user.initials,
             userRoleLabel: session.user.primaryRole,
+            userDivisionLabel: session.user.divisionLabel,
             activeFormCount: _workspaceController.activeFormCount,
             pendingActionCount: _workspaceController.pendingActionCount,
             canOpenTasks: session.canAccessTasks,
@@ -342,6 +368,8 @@ class _GesitShellState extends State<GesitShell>
             onOpenHelpdesk: _openHelpdesk,
             onOpenNotifications: _openNotifications,
             unreadNotificationCount: _notificationController.unreadCount,
+            feedController: _feedController,
+            onOpenFeedThread: _openFeedThread,
           ),
           if (session.canAccessTasks)
             AppShellModule.tasks: TasksScreen(

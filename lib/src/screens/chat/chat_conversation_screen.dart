@@ -794,6 +794,9 @@ class _AttachmentPreviewImage extends StatelessWidget {
       return Image.network(
         attachmentUrl,
         fit: BoxFit.cover,
+        webHtmlElementStrategy: kIsWeb
+            ? WebHtmlElementStrategy.prefer
+            : WebHtmlElementStrategy.never,
         errorBuilder: (_, __, ___) => const _AttachmentPreviewFallback(),
       );
     }

@@ -606,7 +606,7 @@ class _AssistantThreadItem extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Assistant',
+            'Asisten',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: AppColors.goldDeep,
               fontWeight: FontWeight.w800,
@@ -717,7 +717,7 @@ class _AssistantTypingCard extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Text(
-            'Assistant sedang menyiapkan jawaban...',
+            'Asisten sedang mengetik...',
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: AppColors.inkSoft),

@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-import '../config/app_runtime_config.dart';
 import '../data/app_session_controller.dart';
 import '../data/biometric_token_store.dart';
 import '../data/device_biometric_service.dart';
@@ -28,7 +27,6 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  late final TextEditingController _apiBaseUrlController;
   late final TextEditingController _emailController;
   late final TextEditingController _passwordController;
   late final BiometricTokenStore _biometricTokenStore;
@@ -36,13 +34,11 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _rememberSession = true;
   bool _biometricLoading = false;
   bool _biometricSupported = false;
+  String? _localLoginError;
 
   @override
   void initState() {
     super.initState();
-    _apiBaseUrlController = TextEditingController(
-      text: widget.sessionController.apiBaseUrlDraft,
-    );
     _emailController = TextEditingController();
     _passwordController = TextEditingController();
     _biometricTokenStore = widget.biometricTokenStore ?? BiometricTokenStore();
@@ -54,7 +50,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _apiBaseUrlController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -88,24 +83,18 @@ class _LoginScreenState extends State<LoginScreen> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _handleApiBaseUrlChanged(String value) async {
-    await widget.sessionController.updateApiBaseUrl(value);
-    widget.sessionController.clearError();
-  }
-
-  Future<void> _resetApiBaseUrl() async {
-    final fallback = AppRuntimeConfig.defaultApiBaseUrl;
-    _apiBaseUrlController.value = TextEditingValue(
-      text: fallback,
-      selection: TextSelection.collapsed(offset: fallback.length),
-    );
-    await _handleApiBaseUrlChanged(fallback);
-  }
-
   Future<void> _handleSignIn() async {
     FocusScope.of(context).unfocus();
+    final validationError = _validateLoginFields();
+    if (validationError != null) {
+      setState(() => _localLoginError = validationError);
+      widget.sessionController.clearError();
+      return;
+    }
+
+    _clearLoginError();
     await widget.sessionController.signIn(
-      email: _emailController.text,
+      email: _emailController.text.trim(),
       password: _passwordController.text,
       rememberSession: _rememberSession,
     );
@@ -146,6 +135,33 @@ class _LoginScreenState extends State<LoginScreen> {
         'Login berhasil, tetapi aktivasi fingerprint di perangkat ini belum selesai.',
       );
     }
+  }
+
+  String? _validateLoginFields() {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      return 'Email wajib diisi.';
+    }
+
+    final emailLooksValid = RegExp(
+      r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+    ).hasMatch(email);
+    if (!emailLooksValid) {
+      return 'Format email belum valid.';
+    }
+
+    if (_passwordController.text.isEmpty) {
+      return 'Password wajib diisi.';
+    }
+
+    return null;
+  }
+
+  void _clearLoginError() {
+    if (_localLoginError != null && mounted) {
+      setState(() => _localLoginError = null);
+    }
+    widget.sessionController.clearError();
   }
 
   Future<StoredBiometricToken?> _readStoredBiometricToken() async {
@@ -247,8 +263,8 @@ class _LoginScreenState extends State<LoginScreen> {
       builder: (context, _) {
         final textTheme = Theme.of(context).textTheme;
         final isLoading = widget.sessionController.isBusy;
-        final errorMessage = widget.sessionController.errorMessage;
-        final defaultApiBaseUrl = AppRuntimeConfig.defaultApiBaseUrl;
+        final errorMessage =
+            _localLoginError ?? widget.sessionController.errorMessage;
 
         return Scaffold(
           backgroundColor: Colors.transparent,
@@ -313,35 +329,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (kIsWeb) ...[
-                              _FieldLabel(label: 'Alamat API'),
-                              const SizedBox(height: 10),
-                              TextField(
-                                controller: _apiBaseUrlController,
-                                keyboardType: TextInputType.url,
-                                onChanged: (value) {
-                                  unawaited(_handleApiBaseUrlChanged(value));
-                                },
-                                decoration: InputDecoration(
-                                  hintText: defaultApiBaseUrl,
-                                  helperText:
-                                      'Alamat default saat ini: $defaultApiBaseUrl',
-                                  suffixIcon: IconButton(
-                                    tooltip: 'Reset alamat API',
-                                    onPressed: _resetApiBaseUrl,
-                                    icon: const Icon(Icons.refresh_rounded),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 18),
-                            ],
                             _FieldLabel(label: 'Email'),
                             const SizedBox(height: 10),
                             TextField(
                               controller: _emailController,
                               keyboardType: TextInputType.emailAddress,
-                              onChanged: (_) =>
-                                  widget.sessionController.clearError(),
+                              onChanged: (_) => _clearLoginError(),
                               decoration: const InputDecoration(
                                 hintText: 'nama@perusahaan.com',
                               ),
@@ -352,8 +345,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             TextField(
                               controller: _passwordController,
                               obscureText: true,
-                              onChanged: (_) =>
-                                  widget.sessionController.clearError(),
+                              onChanged: (_) => _clearLoginError(),
                               decoration: const InputDecoration(
                                 hintText: 'Masukkan password',
                               ),
