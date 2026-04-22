@@ -1,0 +1,4 @@
+storeFile=app/gesit-upload-keystore.jks
+storePassword=CHANGE_ME
+keyAlias=gesit
+keyPassword=CHANGE_ME
