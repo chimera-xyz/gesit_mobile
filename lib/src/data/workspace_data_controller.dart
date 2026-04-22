@@ -46,6 +46,16 @@ class WorkspaceDataController extends ChangeNotifier {
   int get pendingActionCount =>
       _tasks.where((task) => task.lane == TaskLane.actionable).length;
 
+  TaskItem? taskById(String submissionId) {
+    for (final task in _tasks) {
+      if (task.id == submissionId) {
+        return task;
+      }
+    }
+
+    return null;
+  }
+
   Future<void> ensureLoaded() async {
     await Future.wait([
       if (!_formsLoaded) refreshForms(),
@@ -193,6 +203,31 @@ class WorkspaceDataController extends ChangeNotifier {
       baseUrl: session.apiBaseUrl,
       cookies: session.cookies,
       submissionId: task.id!,
+    );
+    await _sessionController.syncCookies(payload.cookies);
+
+    final submission = _asMap(payload.data['submission']);
+    if (submission.isEmpty) {
+      throw const GesitApiException('Detail submission tidak valid.');
+    }
+
+    final updatedTask = _adaptSubmission(submission, session);
+    _replaceOrInsertTask(updatedTask);
+    notifyListeners();
+    return updatedTask;
+  }
+
+  Future<TaskItem> findOrFetchTaskById(String submissionId) async {
+    final existingTask = taskById(submissionId);
+    if (existingTask != null) {
+      return fetchTaskDetail(existingTask);
+    }
+
+    final session = _requireSession();
+    final payload = await _apiClient.fetchSubmissionDetail(
+      baseUrl: session.apiBaseUrl,
+      cookies: session.cookies,
+      submissionId: submissionId,
     );
     await _sessionController.syncCookies(payload.cookies);
 

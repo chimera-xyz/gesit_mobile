@@ -329,6 +329,7 @@ class AppNotification {
     this.isRead = false,
     this.storesInCenter = true,
     this.destination = NotificationDestination.none,
+    this.link,
     this.primaryActionLabel,
   });
 
@@ -341,6 +342,7 @@ class AppNotification {
   final bool isRead;
   final bool storesInCenter;
   final NotificationDestination destination;
+  final String? link;
   final String? primaryActionLabel;
 
   AppNotification copyWith({
@@ -353,6 +355,7 @@ class AppNotification {
     bool? isRead,
     bool? storesInCenter,
     NotificationDestination? destination,
+    String? link,
     String? primaryActionLabel,
   }) {
     return AppNotification(
@@ -365,6 +368,7 @@ class AppNotification {
       isRead: isRead ?? this.isRead,
       storesInCenter: storesInCenter ?? this.storesInCenter,
       destination: destination ?? this.destination,
+      link: link ?? this.link,
       primaryActionLabel: primaryActionLabel ?? this.primaryActionLabel,
     );
   }
@@ -380,6 +384,7 @@ class ScheduledNotification {
     required this.type,
     this.storesInCenter = true,
     this.destination = NotificationDestination.none,
+    this.link,
     this.primaryActionLabel,
   });
 
@@ -391,6 +396,7 @@ class ScheduledNotification {
   final AppNotificationType type;
   final bool storesInCenter;
   final NotificationDestination destination;
+  final String? link;
   final String? primaryActionLabel;
 
   AppNotification materialize({DateTime? now}) {
@@ -404,6 +410,7 @@ class ScheduledNotification {
       isRead: false,
       storesInCenter: storesInCenter,
       destination: destination,
+      link: link,
       primaryActionLabel: primaryActionLabel,
     );
   }

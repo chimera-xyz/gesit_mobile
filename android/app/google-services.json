@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1048929449965",
+    "project_id": "gesit-5f453",
+    "storage_bucket": "gesit-5f453.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1048929449965:android:152be13e96582b1b1bd9e4",
+        "android_client_info": {
+          "package_name": "com.yuliesekuritas.gesit"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDrU4mImDV08rnA2urAZCVfa8pt_2gd5Gg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

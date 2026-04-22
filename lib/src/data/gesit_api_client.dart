@@ -401,6 +401,146 @@ class GesitApiClient {
     );
   }
 
+  Future<JsonApiPayload> fetchNotifications({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    int perPage = 50,
+    bool unreadOnly = false,
+  }) {
+    return _getJson(
+      baseUrl: baseUrl,
+      path: '/api/notifications',
+      cookies: cookies,
+      queryParameters: {
+        'per_page': '$perPage',
+        'unread_only': unreadOnly ? '1' : '0',
+      },
+    );
+  }
+
+  Future<JsonApiPayload> fetchUnreadNotificationFeed({
+    required String baseUrl,
+    required Map<String, String> cookies,
+  }) {
+    return _getJson(
+      baseUrl: baseUrl,
+      path: '/api/notifications/unread-feed',
+      cookies: cookies,
+    );
+  }
+
+  Future<JsonApiPayload> markNotificationRead({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String notificationId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/notifications/$notificationId/read',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> markAllNotificationsRead({
+    required String baseUrl,
+    required Map<String, String> cookies,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/notifications/read-all',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> deleteNotification({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String notificationId,
+  }) {
+    return _deleteJson(
+      baseUrl: baseUrl,
+      path: '/api/notifications/$notificationId',
+      cookies: cookies,
+    );
+  }
+
+  Future<JsonApiPayload> deleteAllNotifications({
+    required String baseUrl,
+    required Map<String, String> cookies,
+  }) {
+    return _deleteJson(
+      baseUrl: baseUrl,
+      path: '/api/notifications',
+      cookies: cookies,
+    );
+  }
+
+  Stream<JsonApiPayload> streamNotifications({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required int afterId,
+  }) async* {
+    final request = http.Request(
+      'GET',
+      _buildUri(
+        baseUrl,
+        '/api/notifications/stream',
+        queryParameters: {'after_id': '$afterId'},
+      ),
+    );
+    request.headers.addAll(_headersWithCookies(_streamHeaders, cookies));
+
+    final streamedResponse = await _httpClient
+        .send(request)
+        .timeout(_streamConnectTimeout);
+
+    if (streamedResponse.statusCode < 200 ||
+        streamedResponse.statusCode >= 300) {
+      final response = await http.Response.fromStream(streamedResponse);
+      throw _buildApiException(response);
+    }
+
+    final streamCookies = _mergeCookies(
+      cookies,
+      _extractCookiesFromHeaders(streamedResponse.headers),
+    );
+
+    yield* _decodeJsonServerSentEvents(
+      streamedResponse.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter()),
+    ).map((data) => JsonApiPayload(data: data, cookies: streamCookies));
+  }
+
+  Future<JsonApiPayload> registerPushDeviceToken({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String token,
+    required String platform,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/notifications/devices',
+      cookies: cookies,
+      body: {'token': token, 'platform': platform},
+    );
+  }
+
+  Future<JsonApiPayload> unregisterPushDeviceToken({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String token,
+  }) {
+    return _deleteJson(
+      baseUrl: baseUrl,
+      path: '/api/notifications/devices',
+      cookies: cookies,
+      queryParameters: {'token': token},
+    );
+  }
+
   Future<JsonApiPayload> drawSignature({
     required String baseUrl,
     required Map<String, String> cookies,
@@ -894,10 +1034,11 @@ class GesitApiClient {
     required String baseUrl,
     required String path,
     required Map<String, String> cookies,
+    Map<String, String> queryParameters = const {},
   }) async {
     final response = await _httpClient
         .delete(
-          _buildUri(baseUrl, path),
+          _buildUri(baseUrl, path, queryParameters: queryParameters),
           headers: _headersWithCookies(_requestHeaders, cookies),
         )
         .timeout(_requestTimeout);

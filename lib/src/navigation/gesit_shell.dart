@@ -47,11 +47,18 @@ class _GesitShellState extends State<GesitShell>
   late final WorkspaceDataController _workspaceController;
   late final ChatWorkspaceController _chatController;
   late final FeedController _feedController;
+  StreamSubscription<AppNotification>? _notificationOpenRequestSubscription;
 
   @override
   void initState() {
     super.initState();
-    _notificationController = NotificationCenterController()..startDemoFeed();
+    _notificationController = NotificationCenterController(
+      sessionController: widget.sessionController,
+    );
+    _notificationOpenRequestSubscription = _notificationController.openRequests
+        .listen((notification) {
+          unawaited(_handleNotificationOpenRequest(notification));
+        });
     _chatController = ChatWorkspaceController(
       sessionController: widget.sessionController,
       notificationController: _notificationController,
@@ -63,6 +70,7 @@ class _GesitShellState extends State<GesitShell>
     _feedController = FeedController(
       sessionController: widget.sessionController,
     )..ensureLoaded();
+    _notificationController.ensureLoaded();
     _tabTransitionController =
         AnimationController(
           vsync: this,
@@ -76,6 +84,7 @@ class _GesitShellState extends State<GesitShell>
 
   @override
   void dispose() {
+    _notificationOpenRequestSubscription?.cancel();
     _chatController.dispose();
     _workspaceController.dispose();
     _feedController.dispose();
@@ -263,7 +272,10 @@ class _GesitShellState extends State<GesitShell>
       return;
     }
 
-    _notificationController.markAsRead(notificationId);
+    await _notificationController.markAsRead(notificationId);
+    if (!mounted) {
+      return;
+    }
     final detailNotification =
         _notificationController.notificationById(notificationId) ??
         notification.copyWith(isRead: true);
@@ -280,10 +292,31 @@ class _GesitShellState extends State<GesitShell>
       return;
     }
 
-    _openNotificationDestination(detailNotification);
+    await _openNotificationDestination(detailNotification);
   }
 
-  void _openNotificationDestination(AppNotification notification) {
+  Future<void> _handleNotificationOpenRequest(
+    AppNotification notification,
+  ) async {
+    if ((_session.user.id).isEmpty) {
+      return;
+    }
+
+    await _notificationController.markAsRead(notification.id);
+    if (!mounted) {
+      return;
+    }
+
+    await _openNotificationDestination(notification);
+  }
+
+  Future<void> _openNotificationDestination(
+    AppNotification notification,
+  ) async {
+    if (await _openNotificationLink(notification.link)) {
+      return;
+    }
+
     switch (notification.destination) {
       case NotificationDestination.none:
         return;
@@ -316,6 +349,86 @@ class _GesitShellState extends State<GesitShell>
         _selectModule(AppShellModule.profile);
         return;
     }
+  }
+
+  Future<bool> _openNotificationLink(String? rawLink) async {
+    final normalizedLink = rawLink?.trim();
+    if (normalizedLink == null || normalizedLink.isEmpty) {
+      return false;
+    }
+
+    final uri = Uri.tryParse(normalizedLink);
+    final path = uri?.path.isNotEmpty == true ? uri!.path : normalizedLink;
+    final submissionId = _submissionIdFromPath(path);
+    if (submissionId != null && _session.canAccessTasks) {
+      try {
+        _selectModule(AppShellModule.tasks);
+        final task = await _workspaceController.findOrFetchTaskById(
+          submissionId,
+        );
+        if (!mounted) {
+          return true;
+        }
+        _openSubmission(task);
+      } on GesitApiException catch (error) {
+        if (!mounted) {
+          return true;
+        }
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      } catch (_) {
+        if (!mounted) {
+          return true;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Detail notifikasi belum bisa dibuka langsung.'),
+          ),
+        );
+      }
+      return true;
+    }
+
+    if (path.contains('/helpdesk')) {
+      if (_session.canAccessHelpdesk) {
+        _openHelpdesk();
+      }
+      return true;
+    }
+
+    if (path.contains('/knowledge-hub')) {
+      if (_session.canAccessKnowledgeHub) {
+        _openKnowledgeHub();
+      }
+      return true;
+    }
+
+    if (path.contains('/forms')) {
+      if (_session.canAccessForms) {
+        _selectModule(AppShellModule.forms);
+      }
+      return true;
+    }
+
+    if (path.contains('/profile') || path.contains('/user/profile')) {
+      _selectModule(AppShellModule.profile);
+      return true;
+    }
+
+    return false;
+  }
+
+  String? _submissionIdFromPath(String path) {
+    final match = RegExp(
+      r'/(?:submissions|form-submissions)/([^/?#]+)',
+    ).firstMatch(path);
+    final submissionId = match?.group(1)?.trim();
+    if (submissionId == null || submissionId.isEmpty) {
+      return null;
+    }
+
+    return submissionId;
   }
 
   @override
