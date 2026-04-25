@@ -13,6 +13,7 @@ import 'package:shared_preferences_platform_interface/shared_preferences_async_p
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  const migratedApiBaseUrl = 'http://192.168.1.24:8000';
 
   group('AppSessionController', () {
     setUp(() {
@@ -21,17 +22,32 @@ void main() {
     });
 
     test(
-      'bootstrap restores an existing browser-managed session snapshot',
+      'bootstrap migrates an existing browser-managed session snapshot off loopback',
       () async {
         await SessionStore.writeApiBaseUrl('http://localhost:8000');
         await SessionStore.writeRememberSession(true);
+        await SessionStore.writeSession(
+          AppSession(
+            user: const AuthenticatedUser(
+              id: 'user-1',
+              name: 'Raihan Carjasti',
+              email: 'raihan@example.com',
+              roles: ['IT Staff'],
+              permissions: ['view submissions'],
+            ),
+            apiBaseUrl: 'http://localhost:8000',
+            cookies: const {},
+            rememberSession: true,
+            authenticatedAt: DateTime(2026, 4, 19, 8, 30),
+          ),
+        );
 
         final controller = AppSessionController(
           apiClient: GesitApiClient(
             browserManagedCookies: true,
             httpClient: MockClient((request) async {
               expect(request.method, 'GET');
-              expect(request.url.toString(), 'http://localhost:8000/api/user');
+              expect(request.url.toString(), '$migratedApiBaseUrl/api/user');
               expect(request.headers['accept'], 'application/json');
               expect(request.headers.containsKey('x-requested-with'), isFalse);
 
@@ -53,9 +69,14 @@ void main() {
         await controller.bootstrap();
 
         expect(controller.status, AppSessionStatus.authenticated);
-        expect(controller.session?.apiBaseUrl, 'http://localhost:8000');
+        expect(controller.session?.apiBaseUrl, migratedApiBaseUrl);
         expect(controller.session?.user.email, 'raihan@example.com');
         expect(controller.session?.rememberSession, isTrue);
+        expect(await SessionStore.readApiBaseUrl(), migratedApiBaseUrl);
+        expect(
+          (await SessionStore.readSession())?.apiBaseUrl,
+          migratedApiBaseUrl,
+        );
         expect(await SessionStore.readSession(), isNotNull);
       },
     );

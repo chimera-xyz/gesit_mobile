@@ -48,9 +48,17 @@ class _TasksScreenState extends State<TasksScreen> {
         final query = _searchController.text.trim().toLowerCase();
         final emptyStateLabel = _emptyStateLabel(hasQuery: query.isNotEmpty);
         final tasks = widget.controller.tasks;
+        final availableLanes = <TaskLane>[
+          if (widget.controller.canShowActionableTasksLane) TaskLane.actionable,
+          TaskLane.inProgress,
+          TaskLane.history,
+        ];
+        final selectedLane = availableLanes.contains(_selectedLane)
+            ? _selectedLane
+            : availableLanes.first;
         final filteredTasks = tasks
             .where((task) {
-              final matchesLane = task.lane == _selectedLane;
+              final matchesLane = task.lane == selectedLane;
               final matchesQuery =
                   query.isEmpty ||
                   task.title.toLowerCase().contains(query) ||
@@ -81,14 +89,10 @@ class _TasksScreenState extends State<TasksScreen> {
                 physics: const ClampingScrollPhysics(),
                 child: Row(
                   children: [
-                    for (final lane in const [
-                      TaskLane.actionable,
-                      TaskLane.inProgress,
-                      TaskLane.history,
-                    ]) ...[
+                    for (final lane in availableLanes) ...[
                       FilterPill(
                         label: lane.label,
-                        selected: _selectedLane == lane,
+                        selected: selectedLane == lane,
                         onTap: () => setState(() => _selectedLane = lane),
                       ),
                       const SizedBox(width: 10),
@@ -145,7 +149,13 @@ class _TasksScreenState extends State<TasksScreen> {
       return 'Tidak ada pengajuan yang cocok dengan pencarian ini.';
     }
 
-    switch (_selectedLane) {
+    final selectedLane =
+        !widget.controller.canShowActionableTasksLane &&
+            _selectedLane == TaskLane.actionable
+        ? TaskLane.inProgress
+        : _selectedLane;
+
+    switch (selectedLane) {
       case TaskLane.actionable:
         return 'Belum ada pengajuan yang perlu aksi dari Anda.';
       case TaskLane.inProgress:

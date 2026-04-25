@@ -51,9 +51,15 @@ class AppSessionController extends ChangeNotifier {
     _status = AppSessionStatus.bootstrapping;
     _notifyListenersSafely();
 
+    final persistedApiBaseUrl = await SessionStore.readApiBaseUrl();
     _apiBaseUrlDraft = AppRuntimeConfig.normalizePersistedBaseUrl(
-      await SessionStore.readApiBaseUrl(),
+      persistedApiBaseUrl,
     );
+    if (persistedApiBaseUrl != null &&
+        AppRuntimeConfig.normalizeBaseUrl(persistedApiBaseUrl) !=
+            _apiBaseUrlDraft) {
+      await SessionStore.writeApiBaseUrl(_apiBaseUrlDraft);
+    }
     _rememberSession = await SessionStore.readRememberSession();
 
     final storedSession = await SessionStore.readSession();
@@ -72,9 +78,13 @@ class AppSessionController extends ChangeNotifier {
       return;
     }
 
-    final normalizedBaseUrl = AppRuntimeConfig.normalizeBaseUrl(
+    final normalizedBaseUrl = AppRuntimeConfig.normalizePersistedBaseUrl(
       storedSession?.apiBaseUrl ?? _apiBaseUrlDraft,
     );
+    if (_apiBaseUrlDraft != normalizedBaseUrl) {
+      _apiBaseUrlDraft = normalizedBaseUrl;
+      await SessionStore.writeApiBaseUrl(_apiBaseUrlDraft);
+    }
 
     try {
       final currentUser = await _apiClient.fetchCurrentUser(

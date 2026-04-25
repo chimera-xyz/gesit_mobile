@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../config/app_runtime_config.dart';
 import 'app_session_controller.dart';
@@ -9,12 +10,7 @@ import 'app_update_platform_service.dart';
 import 'app_update_service.dart';
 import 'session_store.dart';
 
-enum AppUpdateActionState {
-  idle,
-  checking,
-  permissionRequired,
-  downloading,
-}
+enum AppUpdateActionState { idle, checking, permissionRequired, downloading }
 
 class AppUpdateController extends ChangeNotifier {
   AppUpdateController({
@@ -171,7 +167,8 @@ class AppUpdateController extends ChangeNotifier {
 
     if (!force &&
         _lastCheckedAt != null &&
-        DateTime.now().difference(_lastCheckedAt!) < const Duration(minutes: 5)) {
+        DateTime.now().difference(_lastCheckedAt!) <
+            const Duration(minutes: 5)) {
       return;
     }
 
@@ -188,7 +185,8 @@ class AppUpdateController extends ChangeNotifier {
     _statusMessage = null;
     notifyListeners();
 
-    final permissionGranted = await _platformService.canRequestPackageInstalls();
+    final permissionGranted = await _platformService
+        .canRequestPackageInstalls();
     if (!permissionGranted) {
       _actionState = AppUpdateActionState.permissionRequired;
       _statusMessage =
@@ -221,10 +219,16 @@ class AppUpdateController extends ChangeNotifier {
     } on AppUpdateException catch (error) {
       _actionState = AppUpdateActionState.idle;
       _errorMessage = error.message;
-    } catch (_) {
+    } on PlatformException catch (error) {
       _actionState = AppUpdateActionState.idle;
+      debugPrint('App update installer failed: ${error.code} ${error.message}');
       _errorMessage =
-          'APK gagal diunduh atau installer Android tidak bisa dibuka.';
+          'Installer Android gagal dibuka: ${error.message ?? error.code}.';
+    } catch (error) {
+      _actionState = AppUpdateActionState.idle;
+      debugPrint('App update failed: $error');
+      _errorMessage =
+          'APK gagal diproses. Coba lagi dan pastikan koneksi ke server pembaruan stabil.';
     } finally {
       notifyListeners();
     }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -41,16 +42,15 @@ class AppUpdateService {
     AppBuildInfoProvider? buildInfoProvider,
     AppUpdateFileStore? fileStore,
   }) : _httpClient = httpClient ?? http.Client(),
-       _buildInfoProvider = buildInfoProvider ?? PackageInfoAppBuildInfoProvider(),
+       _buildInfoProvider =
+           buildInfoProvider ?? PackageInfoAppBuildInfoProvider(),
        _fileStore = fileStore ?? createAppUpdateFileStore();
 
   final http.Client _httpClient;
   final AppBuildInfoProvider _buildInfoProvider;
   final AppUpdateFileStore _fileStore;
 
-  Future<AppUpdateCheckResult> checkForUpdate({
-    required String baseUrl,
-  }) async {
+  Future<AppUpdateCheckResult> checkForUpdate({required String baseUrl}) async {
     final currentBuild = await _buildInfoProvider.loadBuild();
     final normalizedBaseUrl = AppRuntimeConfig.normalizeBaseUrl(baseUrl);
 
@@ -117,9 +117,9 @@ class AppUpdateService {
 
     late final http.StreamedResponse response;
     try {
-      response = await _httpClient.send(request).timeout(
-        const Duration(minutes: 5),
-      );
+      response = await _httpClient
+          .send(request)
+          .timeout(const Duration(minutes: 5));
     } on TimeoutException {
       throw const AppUpdateException('Unduhan APK terlalu lama. Coba lagi.');
     } catch (_) {
@@ -139,18 +139,26 @@ class AppUpdateService {
         : (response.contentLength ?? 0);
 
     onProgress(0);
-    final artifact = await _fileStore.saveReleaseArchive(
-      stream: response.stream,
-      fileName: release.apkFileName,
-      onBytesWritten: (writtenBytes) {
-        if (expectedSize <= 0) {
-          return;
-        }
+    late final AppUpdateDownloadArtifact artifact;
+    try {
+      artifact = await _fileStore.saveReleaseArchive(
+        stream: response.stream,
+        fileName: release.apkFileName,
+        onBytesWritten: (writtenBytes) {
+          if (expectedSize <= 0) {
+            return;
+          }
 
-        final progress = writtenBytes / expectedSize;
-        onProgress(progress.clamp(0, 1).toDouble());
-      },
-    );
+          final progress = writtenBytes / expectedSize;
+          onProgress(progress.clamp(0, 1).toDouble());
+        },
+      );
+    } catch (error) {
+      debugPrint('App update download stream failed: $error');
+      throw const AppUpdateException(
+        'Unduhan APK terputus sebelum selesai. Cek koneksi ke server pembaruan lalu coba lagi.',
+      );
+    }
 
     if (release.fileSize > 0 && artifact.fileSize != release.fileSize) {
       throw const AppUpdateException(
@@ -220,6 +228,10 @@ class AppUpdateService {
     }
 
     final normalized = body.trim();
+    if (normalized.startsWith('<!DOCTYPE html') ||
+        normalized.startsWith('<html')) {
+      return 'Server pembaruan menolak request unduhan APK.';
+    }
 
     return normalized.isEmpty ? null : normalized;
   }

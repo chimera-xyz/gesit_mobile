@@ -51,6 +51,7 @@ class ChatWorkspaceController extends ChangeNotifier {
   bool _remoteChatAvailable = true;
   bool _syncLoopRunning = false;
   bool _chatRealtimeStreamUnavailable = false;
+  bool _syncActive = false;
   bool _disposed = false;
   int _syncFailureCount = 0;
   int _lastEventId = 0;
@@ -128,6 +129,20 @@ class ChatWorkspaceController extends ChangeNotifier {
     return _loadFuture ??= _bootstrapWorkspace();
   }
 
+  void setSyncActive(bool active) {
+    if (_syncActive == active) {
+      return;
+    }
+
+    _syncActive = active;
+    if (_shouldMaintainRemoteSync) {
+      _ensureSyncLoop();
+      return;
+    }
+
+    _cancelSyncLoopDelay();
+  }
+
   void startDemoFeed() {}
 
   ConversationPreview? conversationById(String id) {
@@ -168,6 +183,9 @@ class ChatWorkspaceController extends ChangeNotifier {
     );
     _persistSnapshot();
     _notifyListenersSafely();
+    unawaited(
+      notificationController?.markChatConversationAsRead(conversationId),
+    );
     unawaited(_markConversationReadRemote(conversationId));
   }
 
@@ -1015,7 +1033,14 @@ class ChatWorkspaceController extends ChangeNotifier {
 
     await _refreshFromServer();
 
-    if (_remoteChatAvailable) {
+    if (_remoteChatAvailable &&
+        AppRuntimeConfig.prefersShortPolling(
+          sessionController.session?.apiBaseUrl,
+        )) {
+      await _runPollingSyncOnce();
+    }
+
+    if (_remoteChatAvailable && _shouldMaintainRemoteSync) {
       _ensureSyncLoop();
     }
   }
@@ -1057,7 +1082,10 @@ class ChatWorkspaceController extends ChangeNotifier {
   }
 
   void _ensureSyncLoop() {
-    if (_syncLoopRunning || !_remoteChatAvailable || _disposed) {
+    if (_syncLoopRunning ||
+        !_remoteChatAvailable ||
+        !_shouldMaintainRemoteSync ||
+        _disposed) {
       return;
     }
 
@@ -1068,6 +1096,7 @@ class ChatWorkspaceController extends ChangeNotifier {
   Future<void> _runSyncLoop() async {
     while (!_disposed &&
         _remoteChatAvailable &&
+        _shouldMaintainRemoteSync &&
         sessionController.session != null) {
       if (_shouldUseRealtimeChatStream) {
         await _runRealtimeStreamSync();
@@ -1076,6 +1105,7 @@ class ChatWorkspaceController extends ChangeNotifier {
         }
         if (!_disposed &&
             _remoteChatAvailable &&
+            _shouldMaintainRemoteSync &&
             sessionController.session != null) {
           await _waitBeforeNextSync(
             CallRuntimeConfig.chatRealtimeStreamRetryDelay +
@@ -1086,7 +1116,13 @@ class ChatWorkspaceController extends ChangeNotifier {
       }
 
       await _runPollingSyncOnce();
-      await _waitBeforeNextSync(_syncBackoffFor(_syncFailureCount));
+      var nextDelay = _syncBackoffFor(_syncFailureCount);
+      if (AppRuntimeConfig.prefersShortPolling(
+        sessionController.session?.apiBaseUrl,
+      )) {
+        nextDelay += _clientPollingInterval;
+      }
+      await _waitBeforeNextSync(nextDelay);
     }
 
     _syncLoopRunning = false;
@@ -1095,7 +1131,10 @@ class ChatWorkspaceController extends ChangeNotifier {
   bool get _shouldUseRealtimeChatStream {
     return CallRuntimeConfig.chatRealtimeStreamEnabled &&
         !kIsWeb &&
-        !_chatRealtimeStreamUnavailable;
+        !_chatRealtimeStreamUnavailable &&
+        !AppRuntimeConfig.prefersShortPolling(
+          sessionController.session?.apiBaseUrl,
+        );
   }
 
   Future<void> _runRealtimeStreamSync() async {
@@ -1308,38 +1347,64 @@ class ChatWorkspaceController extends ChangeNotifier {
     final previousMessageLists = _messagesByConversation.map(
       (key, value) => MapEntry(key, List<ChatMessage>.from(value)),
     );
+    final previousMemberLists = _membersByConversation.map(
+      (key, value) => MapEntry(key, List<GroupMember>.from(value)),
+    );
+    final previousAssetLists = _assetsByConversation.map(
+      (key, value) => MapEntry(key, List<ConversationAsset>.from(value)),
+    );
     final previousCall = _activeCall;
 
     _conversations
       ..clear()
       ..addAll(snapshot.conversations);
+
+    final nextMessagesByConversation = <String, List<ChatMessage>>{
+      for (final entry in previousMessageLists.entries)
+        entry.key: List<ChatMessage>.from(entry.value),
+    };
+    for (final entry in snapshot.messagesByConversation.entries) {
+      nextMessagesByConversation[entry.key] = _mergeLocalAttachmentState(
+        previousMessageLists[entry.key],
+        entry.value,
+      );
+    }
     _messagesByConversation
       ..clear()
-      ..addAll(
-        snapshot.messagesByConversation.map(
-          (key, value) => MapEntry(
-            key,
-            _mergeLocalAttachmentState(previousMessageLists[key], value),
-          ),
-        ),
+      ..addAll(nextMessagesByConversation);
+
+    final nextMembersByConversation = <String, List<GroupMember>>{
+      for (final entry in previousMemberLists.entries)
+        entry.key: List<GroupMember>.from(entry.value),
+    };
+    for (final entry in snapshot.membersByConversation.entries) {
+      nextMembersByConversation[entry.key] = List<GroupMember>.from(
+        entry.value,
       );
+    }
     _membersByConversation
       ..clear()
-      ..addAll(
-        snapshot.membersByConversation.map(
-          (key, value) => MapEntry(key, List<GroupMember>.from(value)),
-        ),
+      ..addAll(nextMembersByConversation);
+
+    final nextAssetsByConversation = <String, List<ConversationAsset>>{
+      for (final entry in previousAssetLists.entries)
+        entry.key: List<ConversationAsset>.from(entry.value),
+    };
+    for (final entry in snapshot.assetsByConversation.entries) {
+      nextAssetsByConversation[entry.key] = List<ConversationAsset>.from(
+        entry.value,
       );
+    }
     _assetsByConversation
       ..clear()
-      ..addAll(
-        snapshot.assetsByConversation.map(
-          (key, value) => MapEntry(key, List<ConversationAsset>.from(value)),
-        ),
-      );
-    _directoryMembers
-      ..clear()
-      ..addAll(_sortMembers(List<GroupMember>.from(snapshot.directoryMembers)));
+      ..addAll(nextAssetsByConversation);
+    if (snapshot.directoryMembers.isNotEmpty || _directoryMembers.isEmpty) {
+      _directoryMembers
+        ..clear()
+        ..addAll(
+          _sortMembers(List<GroupMember>.from(snapshot.directoryMembers)),
+        );
+    }
     _lastEventId = snapshot.lastEventId;
     _setActiveCall(snapshot.activeCall, isRemote: snapshot.activeCall != null);
     unawaited(_syncCallMediaEngine());
@@ -1502,11 +1567,9 @@ class ChatWorkspaceController extends ChangeNotifier {
         continue;
       }
 
-      final notificationMessage = latestMessage.hasAttachment
-          ? '${latestMessage.senderName ?? conversation.title} mengirim ${latestMessage.attachmentLabel ?? 'file'}.'
-          : latestMessage.isVoiceNote
-          ? '${latestMessage.senderName ?? conversation.title} mengirim voice note.'
-          : latestMessage.text;
+      final notificationMessage = _notificationMessageForIncomingChat(
+        latestMessage,
+      );
 
       _sendTransientNotification(
         title: conversation.title,
@@ -1516,6 +1579,53 @@ class ChatWorkspaceController extends ChangeNotifier {
         type: AppNotificationType.chat,
       );
     }
+  }
+
+  String _notificationMessageForIncomingChat(ChatMessage message) {
+    if (message.isVoiceNote) {
+      return 'Mengirim voice note.';
+    }
+
+    if (message.hasAttachment) {
+      if (_isImageAttachment(
+        mimeType: message.attachmentMimeType,
+        label: message.attachmentLabel,
+      )) {
+        return 'Mengirim photo.';
+      }
+
+      return 'Mengirim file.';
+    }
+
+    final messageText = message.text.trim();
+    if (messageText.isNotEmpty) {
+      return messageText;
+    }
+
+    return 'Pesan baru';
+  }
+
+  bool _isImageAttachment({String? mimeType, String? label}) {
+    final normalizedMimeType = (mimeType ?? '').trim().toLowerCase();
+    if (normalizedMimeType.startsWith('image/')) {
+      return true;
+    }
+
+    final extension = (label ?? '').trim().split('.').last.toLowerCase();
+    if (extension.isEmpty || extension == (label ?? '').trim().toLowerCase()) {
+      return false;
+    }
+
+    return <String>{
+      'jpg',
+      'jpeg',
+      'png',
+      'gif',
+      'webp',
+      'bmp',
+      'heic',
+      'heif',
+    }.contains(extension);
   }
 
   void _emitIncomingCallNotification(
@@ -1763,6 +1873,13 @@ class ChatWorkspaceController extends ChangeNotifier {
   void _setActiveCall(ChatCallSession? session, {required bool isRemote}) {
     _activeCall = session;
     _activeCallIsRemote = session != null && isRemote;
+
+    if (_shouldMaintainRemoteSync) {
+      _ensureSyncLoop();
+      return;
+    }
+
+    _cancelSyncLoopDelay();
   }
 
   bool _isPreparedOutgoingCall(ChatCallSession? session) {
@@ -1976,9 +2093,25 @@ class ChatWorkspaceController extends ChangeNotifier {
   }
 
   int get _syncWaitSeconds {
-    // Keep long-poll windows short so interactive POST actions do not feel
-    // blocked by a hanging sync request during demos and regular chat usage.
+    if (AppRuntimeConfig.prefersShortPolling(
+      sessionController.session?.apiBaseUrl,
+    )) {
+      return 0;
+    }
+
     return CallRuntimeConfig.activeCallSyncWaitSeconds;
+  }
+
+  Duration get _clientPollingInterval {
+    if (_activeCall != null) {
+      return CallRuntimeConfig.activeCallShortPollingInterval;
+    }
+
+    return CallRuntimeConfig.chatShortPollingInterval;
+  }
+
+  bool get _shouldMaintainRemoteSync {
+    return _syncActive || _activeCall != null;
   }
 
   void _handleWorkspaceEvents(List<ChatWorkspaceEvent> events) {
@@ -2145,6 +2278,32 @@ class ChatWorkspaceController extends ChangeNotifier {
     if (_disposed) {
       return;
     }
+
+    final session = _activeCall;
+    if (session != null) {
+      final mediaState = _callMediaEngine.state;
+      final resolvedCameraEnabled = session.type == ChatCallType.video
+          ? mediaState.cameraEnabled
+          : false;
+      final needsSessionSync =
+          session.micEnabled != mediaState.micEnabled ||
+          session.speakerEnabled != mediaState.speakerEnabled ||
+          session.cameraEnabled != resolvedCameraEnabled;
+
+      if (needsSessionSync) {
+        _setActiveCall(
+          session.copyWith(
+            micEnabled: mediaState.micEnabled,
+            speakerEnabled: mediaState.speakerEnabled,
+            cameraEnabled: resolvedCameraEnabled,
+          ),
+          isRemote: _activeCallIsRemote,
+        );
+        _syncCurrentUserParticipant(videoEnabled: resolvedCameraEnabled);
+        unawaited(_broadcastCurrentCallMediaState());
+      }
+    }
+
     _notifyListenersSafely();
   }
 

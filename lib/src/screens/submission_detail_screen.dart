@@ -2,13 +2,13 @@ import 'dart:convert';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../data/demo_data.dart';
 import '../data/workspace_data_controller.dart';
 import '../models/app_models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
+import 'submission_pdf_preview_screen.dart';
 
 class SubmissionDetailScreen extends StatefulWidget {
   const SubmissionDetailScreen({
@@ -447,28 +447,13 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                         OutlinedButton(
                           onPressed: !_task.canPreviewPdf
                               ? null
-                              : () async {
-                                  final rawUrl =
-                                      _task.pdfPreviewUrl ??
-                                      _task.pdfDownloadUrl;
-                                  final uri = rawUrl == null
-                                      ? null
-                                      : Uri.tryParse(rawUrl);
-                                  if (uri == null) {
-                                    return;
-                                  }
-
-                                  final launched = await launchUrl(uri);
-                                  if (!launched && context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'PDF tidak berhasil dibuka.',
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                },
+                              : () => pushBrandedRoute(
+                                  context,
+                                  SubmissionPdfPreviewScreen(
+                                    task: _task,
+                                    controller: widget.controller,
+                                  ),
+                                ),
                           child: Text(
                             _task.canPreviewPdf
                                 ? 'Pratinjau'

@@ -167,6 +167,20 @@ class NoopChatCallMediaEngine extends ChatCallMediaEngine {
   }) async {}
 }
 
+class _LocalMediaOpenResult {
+  const _LocalMediaOpenResult({
+    required this.stream,
+    required this.cameraEnabled,
+    this.warningMessage,
+  });
+
+  final MediaStream stream;
+  final bool cameraEnabled;
+  final String? warningMessage;
+
+  bool get hasVideo => stream.getVideoTracks().isNotEmpty;
+}
+
 class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
   ChatCallMediaState _state = ChatCallMediaState.idle;
   RTCPeerConnection? _peerConnection;
@@ -318,6 +332,18 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
   Future<void> setCameraEnabled(bool enabled) {
     return _enqueue(() async {
       final videoTracks = _localStream?.getVideoTracks() ?? const [];
+      if (enabled && videoTracks.isEmpty) {
+        _updateState(
+          _state.copyWith(
+            cameraEnabled: false,
+            hasLocalVideo: false,
+            errorMessage:
+                'Kamera belum tersedia untuk panggilan ini. Mulai ulang call untuk mencoba video lagi.',
+          ),
+        );
+        return;
+      }
+
       for (final track in videoTracks) {
         track.enabled = enabled;
       }
@@ -336,6 +362,11 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
     return _enqueue(() async {
       final videoTracks = _localStream?.getVideoTracks() ?? const [];
       if (videoTracks.isEmpty) {
+        _updateState(
+          _state.copyWith(
+            errorMessage: 'Kamera belum aktif untuk dipindahkan.',
+          ),
+        );
         return;
       }
 
@@ -377,22 +408,25 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
     try {
       await _ensureRenderers();
       await _configureAudio();
-      await _openLocalMedia(session);
+      final localMedia = await _openLocalMedia(session);
+      _localStream = localMedia.stream;
+      _localRenderer?.srcObject = _localStream;
+      _isFrontCamera = true;
       await _createPeerConnection();
       await _addLocalTracks();
-      await _applyLocalTrackState(session);
+      await _applyLocalTrackState(
+        session.copyWith(cameraEnabled: localMedia.cameraEnabled),
+      );
       await _applySpeakerRoute(session.speakerEnabled);
       _updateState(
         _state.copyWith(
           isPreparingLocalMedia: false,
           hasLocalMedia: true,
-          hasLocalVideo:
-              (_localStream?.getVideoTracks().isNotEmpty ?? false) &&
-              session.cameraEnabled,
+          hasLocalVideo: localMedia.hasVideo && localMedia.cameraEnabled,
           speakerEnabled: session.speakerEnabled,
           micEnabled: session.micEnabled,
-          cameraEnabled: session.cameraEnabled,
-          errorMessage: null,
+          cameraEnabled: localMedia.cameraEnabled,
+          errorMessage: localMedia.warningMessage,
         ),
       );
     } catch (error) {
@@ -420,17 +454,49 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
 
   Future<void> _configureAudio() async {
     if (WebRTC.platformIsAndroid) {
-      await Helper.setAndroidAudioConfiguration(
-        AndroidAudioConfiguration.communication,
+      try {
+        await Helper.setAndroidAudioConfiguration(
+          AndroidAudioConfiguration.communication,
+        );
+      } catch (error) {
+        debugPrint('Android audio configuration failed: $error');
+      }
+    }
+  }
+
+  Future<_LocalMediaOpenResult> _openLocalMedia(ChatCallSession session) async {
+    final wantsVideo =
+        session.type == ChatCallType.video && session.cameraEnabled;
+    if (!wantsVideo) {
+      return _captureLocalMedia(includeVideo: false);
+    }
+
+    try {
+      return await _captureLocalMedia(includeVideo: true);
+    } catch (error) {
+      if (!_canRetryWithoutVideo(error)) {
+        rethrow;
+      }
+
+      debugPrint('Video capture unavailable, retrying audio-only: $error');
+      return _captureLocalMedia(
+        includeVideo: false,
+        warningMessage: _cameraFallbackMessage(error),
       );
     }
   }
 
-  Future<void> _openLocalMedia(ChatCallSession session) async {
-    final wantsVideo = session.type == ChatCallType.video;
+  Future<_LocalMediaOpenResult> _captureLocalMedia({
+    required bool includeVideo,
+    String? warningMessage,
+  }) async {
     final mediaConstraints = <String, dynamic>{
-      'audio': true,
-      'video': wantsVideo
+      'audio': <String, dynamic>{
+        'echoCancellation': true,
+        'noiseSuppression': true,
+        'autoGainControl': true,
+      },
+      'video': includeVideo
           ? <String, dynamic>{
               'facingMode': 'user',
               'width': 1280,
@@ -440,9 +506,12 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
           : false,
     };
 
-    _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-    _localRenderer?.srcObject = _localStream;
-    _isFrontCamera = true;
+    final stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+    return _LocalMediaOpenResult(
+      stream: stream,
+      cameraEnabled: includeVideo,
+      warningMessage: warningMessage,
+    );
   }
 
   Future<void> _createPeerConnection() async {
@@ -480,12 +549,7 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
     };
 
     _peerConnection!.onTrack = (event) {
-      if (event.streams.isEmpty) {
-        return;
-      }
-      _remoteStream = event.streams.first;
-      _remoteRenderer?.srcObject = _remoteStream;
-      _updateRemoteMediaState();
+      unawaited(_handleRemoteTrack(event));
     };
 
     _peerConnection!.onAddStream = (stream) {
@@ -515,6 +579,34 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
     }
   }
 
+  Future<void> _handleRemoteTrack(RTCTrackEvent event) async {
+    final stream = event.streams.isNotEmpty
+        ? event.streams.first
+        : await _ensureRemoteStream();
+    final track = event.track;
+    final knownTrackIds = stream.getTracks().map((item) => item.id).toSet();
+    if (!knownTrackIds.contains(track.id)) {
+      await stream.addTrack(track);
+    }
+
+    _remoteStream = stream;
+    _remoteRenderer?.srcObject = stream;
+    _updateRemoteMediaState();
+  }
+
+  Future<MediaStream> _ensureRemoteStream() async {
+    final existingStream = _remoteStream;
+    if (existingStream != null) {
+      return existingStream;
+    }
+
+    final stream = await createLocalMediaStream(
+      'gesit-remote-${_callId ?? DateTime.now().microsecondsSinceEpoch}',
+    );
+    _remoteStream = stream;
+    return stream;
+  }
+
   Future<void> _applyLocalTrackState(ChatCallSession session) async {
     final audioTracks = _localStream?.getAudioTracks() ?? const [];
     for (final track in audioTracks) {
@@ -541,10 +633,14 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
       return;
     }
 
-    if (enabled) {
-      await Helper.setSpeakerphoneOnButPreferBluetooth();
-    } else {
-      await Helper.setSpeakerphoneOn(false);
+    try {
+      if (enabled) {
+        await Helper.setSpeakerphoneOnButPreferBluetooth();
+      } else {
+        await Helper.setSpeakerphoneOn(false);
+      }
+    } catch (error) {
+      debugPrint('Speaker route update failed: $error');
     }
     _updateState(_state.copyWith(speakerEnabled: enabled));
   }
@@ -810,6 +906,29 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
     return '$signalType|$fromUserId';
   }
 
+  bool _canRetryWithoutVideo(Object error) {
+    final message = error.toString();
+    return message.contains('NotAllowedError') ||
+        message.contains('NotFoundError') ||
+        message.contains('NotReadableError') ||
+        message.contains('AbortError') ||
+        message.contains('OverconstrainedError');
+  }
+
+  String _cameraFallbackMessage(Object error) {
+    final message = error.toString();
+    if (message.contains('NotAllowedError')) {
+      return 'Izin kamera belum aktif. Panggilan dilanjutkan dengan audio.';
+    }
+    if (message.contains('NotFoundError')) {
+      return 'Kamera tidak ditemukan. Panggilan dilanjutkan dengan audio.';
+    }
+    if (message.contains('NotReadableError')) {
+      return 'Kamera sedang dipakai aplikasi lain. Panggilan dilanjutkan dengan audio.';
+    }
+    return 'Kamera belum siap. Panggilan dilanjutkan dengan audio.';
+  }
+
   Future<void> _closeCall() async {
     _offerSent = false;
     _remoteDescriptionApplied = false;
@@ -905,6 +1024,9 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
     }
     if (message.contains('NotReadableError')) {
       return 'Kamera atau mikrofon sedang dipakai aplikasi lain.';
+    }
+    if (message.contains('AbortError')) {
+      return 'Perangkat media berhenti merespons. Coba mulai ulang panggilan.';
     }
     return 'Media call belum bisa diaktifkan.';
   }

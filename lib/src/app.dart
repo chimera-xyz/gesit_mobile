@@ -75,18 +75,13 @@ class _GesitAppState extends State<GesitApp> with WidgetsBindingObserver {
       animation: Listenable.merge([_sessionController, _appUpdateController]),
       builder: (context, _) {
         final Widget currentScreen;
-        final nextLabel = _appUpdateController.isBootstrapping
-            ? 'Memeriksa versi aplikasi'
-            : switch (_sessionController.status) {
-                AppSessionStatus.bootstrapping => 'Menyelaraskan sesi kerja',
-                AppSessionStatus.authenticated => 'Membuka workspace',
-                AppSessionStatus.unauthenticated =>
-                  'Membuka halaman login',
-              };
+        final nextLabel = switch (_sessionController.status) {
+          AppSessionStatus.bootstrapping => 'Menyelaraskan sesi kerja',
+          AppSessionStatus.authenticated => 'Membuka workspace',
+          AppSessionStatus.unauthenticated => 'Membuka halaman login',
+        };
 
-        if (!_openingComplete ||
-            _sessionController.isBootstrapping ||
-            _appUpdateController.isBootstrapping) {
+        if (!_openingComplete || _sessionController.isBootstrapping) {
           currentScreen = OpeningScreen(
             key: const ValueKey('opening'),
             nextLabel: nextLabel,

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -66,6 +67,20 @@ class JsonApiPayload {
 
   final Map<String, dynamic> data;
   final Map<String, String> cookies;
+}
+
+class BinaryApiPayload {
+  const BinaryApiPayload({
+    required this.bytes,
+    required this.cookies,
+    this.contentType,
+    this.fileName,
+  });
+
+  final Uint8List bytes;
+  final Map<String, String> cookies;
+  final String? contentType;
+  final String? fileName;
 }
 
 class GesitApiClient {
@@ -236,6 +251,19 @@ class GesitApiClient {
     );
   }
 
+  Future<BinaryApiPayload> fetchSubmissionPdfPreview({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String submissionId,
+  }) {
+    return _getBinary(
+      baseUrl: baseUrl,
+      path: '/api/pdf/stream/$submissionId',
+      cookies: cookies,
+      accept: 'application/pdf',
+    );
+  }
+
   Future<JsonApiPayload> createSubmission({
     required String baseUrl,
     required Map<String, String> cookies,
@@ -306,17 +334,37 @@ class GesitApiClient {
     );
   }
 
+  Future<JsonApiPayload> fetchFeedAudienceMembers({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    String? query,
+  }) {
+    return _getJson(
+      baseUrl: baseUrl,
+      path: '/api/feed/audience-members',
+      cookies: cookies,
+      queryParameters: query == null || query.trim().isEmpty
+          ? const <String, String>{}
+          : {'query': query.trim()},
+    );
+  }
+
   Future<JsonApiPayload> createFeedPost({
     required String baseUrl,
     required Map<String, String> cookies,
     required String content,
     required String visibility,
+    List<String> recipientUserIds = const <String>[],
   }) {
     return _postJson(
       baseUrl: baseUrl,
       path: '/api/feed/posts',
       cookies: cookies,
-      body: {'content': content, 'visibility': visibility},
+      body: {
+        'content': content,
+        'visibility': visibility,
+        if (recipientUserIds.isNotEmpty) 'recipient_user_ids': recipientUserIds,
+      },
     );
   }
 
@@ -351,6 +399,7 @@ class GesitApiClient {
     required String postId,
     required String content,
     String? parentId,
+    List<String> mentionedUserIds = const <String>[],
   }) {
     return _postJson(
       baseUrl: baseUrl,
@@ -360,6 +409,7 @@ class GesitApiClient {
         'content': content,
         if (parentId != null && parentId.trim().isNotEmpty)
           'parent_id': parentId.trim(),
+        if (mentionedUserIds.isNotEmpty) 'mentioned_user_ids': mentionedUserIds,
       },
     );
   }
@@ -972,6 +1022,33 @@ class GesitApiClient {
     return _parseJsonPayload(response, existingCookies: cookies);
   }
 
+  Future<BinaryApiPayload> _getBinary({
+    required String baseUrl,
+    required String path,
+    required Map<String, String> cookies,
+    String accept = '*/*',
+  }) async {
+    final response = await _httpClient
+        .get(
+          _buildUri(baseUrl, path),
+          headers: _headersWithCookies({'Accept': accept}, cookies),
+        )
+        .timeout(_requestTimeout);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw _buildApiException(response);
+    }
+
+    return BinaryApiPayload(
+      bytes: response.bodyBytes,
+      cookies: _mergeCookies(cookies, _extractCookies(response)),
+      contentType: response.headers['content-type'],
+      fileName: _fileNameFromContentDisposition(
+        response.headers['content-disposition'],
+      ),
+    );
+  }
+
   Future<JsonApiPayload> _postJson({
     required String baseUrl,
     required String path,
@@ -1141,6 +1218,42 @@ class GesitApiClient {
     }
 
     return null;
+  }
+
+  String? _fileNameFromContentDisposition(String? rawHeader) {
+    final header = rawHeader?.trim();
+    if (header == null || header.isEmpty) {
+      return null;
+    }
+
+    final utf8Match = RegExp(
+      "filename\\*=UTF-8''([^;]+)",
+      caseSensitive: false,
+    ).firstMatch(header);
+    if (utf8Match != null) {
+      final rawFileName = utf8Match.group(1);
+      if (rawFileName != null && rawFileName.trim().isNotEmpty) {
+        return Uri.decodeComponent(rawFileName.trim());
+      }
+    }
+
+    final quotedMatch = RegExp(
+      'filename="([^"]+)"',
+      caseSensitive: false,
+    ).firstMatch(header);
+    if (quotedMatch != null) {
+      final rawFileName = quotedMatch.group(1)?.trim();
+      if (rawFileName != null && rawFileName.isNotEmpty) {
+        return rawFileName;
+      }
+    }
+
+    final plainMatch = RegExp(
+      r'filename=([^;]+)',
+      caseSensitive: false,
+    ).firstMatch(header);
+    final rawFileName = plainMatch?.group(1)?.trim();
+    return rawFileName == null || rawFileName.isEmpty ? null : rawFileName;
   }
 
   Map<String, String> get _requestHeaders {

@@ -63,14 +63,17 @@ class _GesitShellState extends State<GesitShell>
       sessionController: widget.sessionController,
       notificationController: _notificationController,
       callMediaEngine: WebRtcChatCallMediaEngine(),
-    )..ensureLoaded();
+    );
     _workspaceController = WorkspaceDataController(
       sessionController: widget.sessionController,
-    )..ensureLoaded();
+    );
     _feedController = FeedController(
       sessionController: widget.sessionController,
-    )..ensureLoaded();
-    _notificationController.ensureLoaded();
+    );
+    _syncModuleControllers(_currentModule);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_primeStartupControllers());
+    });
     _tabTransitionController =
         AnimationController(
           vsync: this,
@@ -80,6 +83,28 @@ class _GesitShellState extends State<GesitShell>
             setState(() => _isTransitioning = false);
           }
         });
+  }
+
+  Future<void> _primeStartupControllers() async {
+    await _notificationController.ensureLoaded();
+    if (!mounted) {
+      return;
+    }
+
+    await _workspaceController.ensureLoaded();
+    if (!mounted) {
+      return;
+    }
+
+    await _feedController.ensureLoaded();
+  }
+
+  Future<void> _ensureChatLoaded() async {
+    if (!_session.canAccessChat) {
+      return;
+    }
+
+    await _chatController.ensureLoaded();
   }
 
   @override
@@ -98,6 +123,11 @@ class _GesitShellState extends State<GesitShell>
       return;
     }
 
+    _syncModuleControllers(module);
+    if (module == AppShellModule.chat) {
+      unawaited(_ensureChatLoaded());
+    }
+
     setState(() {
       _previousModule = _currentModule;
       _currentModule = module;
@@ -105,6 +135,11 @@ class _GesitShellState extends State<GesitShell>
     });
 
     _tabTransitionController.forward(from: 0);
+  }
+
+  void _syncModuleControllers(AppShellModule module) {
+    _feedController.setAutoRefreshActive(module == AppShellModule.home);
+    _chatController.setSyncActive(module == AppShellModule.chat);
   }
 
   void _openSubmission(TaskItem task) {
@@ -125,6 +160,30 @@ class _GesitShellState extends State<GesitShell>
     );
   }
 
+  Future<void> _openFeedThreadById(String postId) async {
+    _selectModule(AppShellModule.home);
+    final post =
+        _feedController.threadById(postId) ?? _feedController.postById(postId);
+
+    if (post == null) {
+      await _feedController.fetchThread(postId, forceRefresh: true);
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    final resolvedPost =
+        _feedController.threadById(postId) ?? _feedController.postById(postId);
+    if (resolvedPost == null) {
+      throw const GesitApiException(
+        'Thread feed belum bisa dibuka dari notifikasi.',
+      );
+    }
+
+    _openFeedThread(resolvedPost);
+  }
+
   void _openKnowledgeHub() {
     pushBrandedRoute(
       context,
@@ -143,32 +202,77 @@ class _GesitShellState extends State<GesitShell>
   }
 
   void _openConversation(ConversationPreview conversation) {
-    pushBrandedRoute(
-      context,
-      ChatConversationScreen(
-        controller: _chatController,
-        conversationId: conversation.id,
-        onOpenGroupDetail: conversation.isGroup
-            ? () => pushBrandedRoute(
-                context,
-                GroupDetailScreen(
-                  controller: _chatController,
-                  conversationId: conversation.id,
-                  onStartVoiceCall: () => unawaited(
-                    _startCall(conversation.id, type: ChatCallType.voice),
-                  ),
-                  onStartVideoCall: () => unawaited(
-                    _startCall(conversation.id, type: ChatCallType.video),
-                  ),
-                ),
-              )
-            : null,
-        onStartVoiceCall: () =>
-            unawaited(_startCall(conversation.id, type: ChatCallType.voice)),
-        onStartVideoCall: () =>
-            unawaited(_startCall(conversation.id, type: ChatCallType.video)),
-      ),
+    unawaited(
+      _ensureChatLoaded().then((_) {
+        if (!mounted) {
+          return;
+        }
+
+        pushBrandedRoute(
+          context,
+          ChatConversationScreen(
+            controller: _chatController,
+            conversationId: conversation.id,
+            onOpenGroupDetail: conversation.isGroup
+                ? () => pushBrandedRoute(
+                    context,
+                    GroupDetailScreen(
+                      controller: _chatController,
+                      conversationId: conversation.id,
+                      onStartVoiceCall: () => unawaited(
+                        _startCall(conversation.id, type: ChatCallType.voice),
+                      ),
+                      onStartVideoCall: () => unawaited(
+                        _startCall(conversation.id, type: ChatCallType.video),
+                      ),
+                    ),
+                  )
+                : null,
+            onStartVoiceCall: () => unawaited(
+              _startCall(conversation.id, type: ChatCallType.voice),
+            ),
+            onStartVideoCall: () => unawaited(
+              _startCall(conversation.id, type: ChatCallType.video),
+            ),
+          ),
+        );
+      }),
     );
+  }
+
+  Future<void> _openConversationById(
+    String conversationId, {
+    String? callId,
+  }) async {
+    await _ensureChatLoaded();
+    if (!mounted) {
+      return;
+    }
+
+    _selectModule(AppShellModule.chat);
+    final conversation = _chatController.conversationById(conversationId);
+    if (conversation == null) {
+      throw const GesitApiException(
+        'Percakapan belum bisa dibuka dari notifikasi.',
+      );
+    }
+
+    final activeCall = _chatController.activeCall;
+    if (callId != null &&
+        activeCall != null &&
+        activeCall.id == callId &&
+        activeCall.conversationId == conversationId) {
+      pushBrandedRoute(
+        context,
+        ChatCallScreen(
+          controller: _chatController,
+          conversationId: conversationId,
+        ),
+      );
+      return;
+    }
+
+    _openConversation(conversation);
   }
 
   Future<void> _startCall(
@@ -231,6 +335,10 @@ class _GesitShellState extends State<GesitShell>
   }
 
   Future<void> _openChatComposer() async {
+    await _ensureChatLoaded();
+    if (!mounted) {
+      return;
+    }
     final selectedConversation =
         await showModalBottomSheet<ConversationPreview>(
           context: context,
@@ -320,6 +428,15 @@ class _GesitShellState extends State<GesitShell>
     switch (notification.destination) {
       case NotificationDestination.none:
         return;
+      case NotificationDestination.feed:
+        final link = notification.link;
+        final postId = link == null
+            ? null
+            : _feedPostIdFromPath(Uri.tryParse(link)?.path ?? link);
+        if (postId != null) {
+          await _openFeedThreadById(postId);
+        }
+        return;
       case NotificationDestination.tasks:
         if (_session.canAccessTasks) {
           _selectModule(AppShellModule.tasks);
@@ -359,6 +476,57 @@ class _GesitShellState extends State<GesitShell>
 
     final uri = Uri.tryParse(normalizedLink);
     final path = uri?.path.isNotEmpty == true ? uri!.path : normalizedLink;
+    final feedPostId = _feedPostIdFromPath(path);
+    if (feedPostId != null) {
+      try {
+        await _openFeedThreadById(feedPostId);
+      } on GesitApiException catch (error) {
+        if (!mounted) {
+          return true;
+        }
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      } catch (_) {
+        if (!mounted) {
+          return true;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Thread feed belum bisa dibuka langsung.'),
+          ),
+        );
+      }
+      return true;
+    }
+
+    final conversationId = _conversationIdFromPath(path);
+    if (conversationId != null && _session.canAccessChat) {
+      try {
+        await _openConversationById(
+          conversationId,
+          callId: uri?.queryParameters['call'],
+        );
+      } on GesitApiException catch (error) {
+        if (!mounted) {
+          return true;
+        }
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      } catch (_) {
+        if (!mounted) {
+          return true;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Chat belum bisa dibuka langsung dari notifikasi.'),
+          ),
+        );
+      }
+      return true;
+    }
+
     final submissionId = _submissionIdFromPath(path);
     if (submissionId != null && _session.canAccessTasks) {
       try {
@@ -429,6 +597,26 @@ class _GesitShellState extends State<GesitShell>
     }
 
     return submissionId;
+  }
+
+  String? _feedPostIdFromPath(String path) {
+    final match = RegExp(r'/feed/posts/([^/?#]+)').firstMatch(path);
+    final postId = match?.group(1)?.trim();
+    if (postId == null || postId.isEmpty) {
+      return null;
+    }
+
+    return postId;
+  }
+
+  String? _conversationIdFromPath(String path) {
+    final match = RegExp(r'/chat/conversations/([^/?#]+)').firstMatch(path);
+    final conversationId = match?.group(1)?.trim();
+    if (conversationId == null || conversationId.isEmpty) {
+      return null;
+    }
+
+    return conversationId;
   }
 
   @override
@@ -581,12 +769,12 @@ class _GesitShellState extends State<GesitShell>
               ),
               Positioned(
                 top: 0,
-                left: 16,
-                right: 16,
+                left: 20,
+                right: 20,
                 child: SafeArea(
                   bottom: false,
                   child: Padding(
-                    padding: const EdgeInsets.only(top: 10),
+                    padding: const EdgeInsets.only(top: 16),
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 220),
                       switchInCurve: Curves.easeOutCubic,
@@ -608,8 +796,9 @@ class _GesitShellState extends State<GesitShell>
                           : NotificationHeadsUpBanner(
                               key: ValueKey(activeBanner.id),
                               notification: activeBanner,
-                              onTap: () =>
-                                  _openNotificationDetail(activeBanner.id),
+                              onTap: () => unawaited(
+                                _handleNotificationOpenRequest(activeBanner),
+                              ),
                               onDismiss:
                                   _notificationController.dismissActiveBanner,
                             ),

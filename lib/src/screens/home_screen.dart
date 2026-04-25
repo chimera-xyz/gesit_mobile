@@ -84,9 +84,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openComposer() async {
+    try {
+      await widget.feedController.ensureAudienceMembersLoaded();
+    } on Exception catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$error')));
+    }
+
+    if (!mounted) {
+      return;
+    }
+
     final draft = await showFeedComposerSheet(
       context,
       userDivisionLabel: widget.userDivisionLabel,
+      audienceMembers: widget.feedController.audienceMembers,
     );
     if (!mounted || draft == null) {
       return;
@@ -96,6 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await widget.feedController.createPost(
         content: draft.content,
         visibility: draft.visibility,
+        recipientUserIds: draft.recipientUserIds,
       );
     } on Exception catch (error) {
       if (!mounted) {

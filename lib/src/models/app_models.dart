@@ -280,6 +280,7 @@ enum AppNotificationType {
 
 enum NotificationDestination {
   none,
+  feed,
   tasks,
   forms,
   helpdesk,

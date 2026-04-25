@@ -37,6 +37,7 @@ void main() {
     test(
       'ensureLoaded hydrates chat workspace from backend snapshot',
       () async {
+        String? syncWaitSeconds;
         final controller = ChatWorkspaceController(
           sessionController: sessionController,
           store: store,
@@ -46,6 +47,7 @@ void main() {
                 return _jsonResponse({'workspace': _workspaceJson()});
               }
               if (request.url.path.endsWith('/api/chat/sync')) {
+                syncWaitSeconds = request.url.queryParameters['wait_seconds'];
                 return _jsonResponse({
                   'last_event_id': 7,
                   'has_changes': false,
@@ -70,11 +72,17 @@ void main() {
           controller.directoryMembers.map((item) => item.name),
           contains('Nadia Finance'),
         );
+        await pumpEventQueue(times: 2);
+        expect(syncWaitSeconds, '0');
       },
     );
 
     test('ensureLoaded consumes realtime stream updates before polling', () async {
       var syncRequests = 0;
+      await sessionController.syncSession(
+        _buildSession(apiBaseUrl: 'https://gesit.example.com'),
+        notify: false,
+      );
       final controller = ChatWorkspaceController(
         sessionController: sessionController,
         store: store,
@@ -113,9 +121,13 @@ void main() {
         ),
       );
       addTearDown(controller.dispose);
+      controller.setSyncActive(false);
 
       await controller.ensureLoaded();
-      await pumpEventQueue(times: 4);
+      expect(controller.conversationById('srv-1')?.preview, 'Halo dari server');
+
+      controller.setSyncActive(true);
+      await pumpEventQueue(times: 8);
 
       expect(controller.conversationById('srv-1')?.preview, 'Update realtime');
       expect(controller.messagesFor('srv-1').last.text, 'Update realtime');
@@ -621,7 +633,7 @@ void main() {
   });
 }
 
-AppSession _buildSession() {
+AppSession _buildSession({String apiBaseUrl = 'http://127.0.0.1:8000'}) {
   return AppSession(
     user: const AuthenticatedUser(
       id: 'test-user',
@@ -631,7 +643,7 @@ AppSession _buildSession() {
       permissions: ['view submissions', 'view forms'],
       department: 'Operations',
     ),
-    apiBaseUrl: 'http://127.0.0.1:8000',
+    apiBaseUrl: apiBaseUrl,
     cookies: const {},
     rememberSession: false,
     authenticatedAt: DateTime(2026, 4, 19),

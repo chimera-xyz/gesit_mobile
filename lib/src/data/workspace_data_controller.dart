@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -45,6 +46,15 @@ class WorkspaceDataController extends ChangeNotifier {
 
   int get pendingActionCount =>
       _tasks.where((task) => task.lane == TaskLane.actionable).length;
+
+  bool get canShowActionableTasksLane {
+    final user = _sessionController.session?.user;
+    if (user?.canApproveForms == true) {
+      return true;
+    }
+
+    return !_usingFallbackTasks && pendingActionCount > 0;
+  }
 
   TaskItem? taskById(String submissionId) {
     for (final task in _tasks) {
@@ -215,6 +225,27 @@ class WorkspaceDataController extends ChangeNotifier {
     _replaceOrInsertTask(updatedTask);
     notifyListeners();
     return updatedTask;
+  }
+
+  Future<Uint8List> fetchTaskPdfPreview(TaskItem task) async {
+    final submissionId = task.id?.trim();
+    if (submissionId == null || submissionId.isEmpty) {
+      throw const GesitApiException('Submission belum punya ID PDF valid.');
+    }
+
+    final session = _requireSession();
+    final payload = await _apiClient.fetchSubmissionPdfPreview(
+      baseUrl: session.apiBaseUrl,
+      cookies: session.cookies,
+      submissionId: submissionId,
+    );
+    await _sessionController.syncCookies(payload.cookies);
+
+    if (payload.bytes.isEmpty) {
+      throw const GesitApiException('File PDF kosong atau belum tersedia.');
+    }
+
+    return payload.bytes;
   }
 
   Future<TaskItem> findOrFetchTaskById(String submissionId) async {

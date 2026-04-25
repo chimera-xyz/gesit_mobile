@@ -94,10 +94,7 @@ class _OpeningScreenState extends State<OpeningScreen>
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: [
-                          AppColors.canvasTop,
-                          AppColors.canvasBottom,
-                        ],
+                        colors: [AppColors.canvasTop, AppColors.canvasBottom],
                       ),
                     ),
                   ),

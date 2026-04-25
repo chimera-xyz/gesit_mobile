@@ -162,6 +162,129 @@ void main() {
       expect(controller.posts.first.visibility, FeedVisibility.department);
     });
 
+    test(
+      'createPost forwards selected recipient ids and audience members can be loaded',
+      () async {
+        final controller = FeedController(
+          sessionController: sessionController,
+          apiClient: GesitApiClient(
+            httpClient: MockClient((request) async {
+              if (request.method == 'GET' &&
+                  request.url.path == '/api/feed/audience-members') {
+                return _jsonResponse({
+                  'users': [
+                    {
+                      'id': 'user-9',
+                      'name': 'Dina Finance',
+                      'initials': 'DF',
+                      'department': 'Finance',
+                      'primary_role': 'Accounting',
+                    },
+                  ],
+                });
+              }
+
+              if (request.method == 'GET' && request.url.path == '/api/feed') {
+                return _jsonResponse({
+                  'posts': const [],
+                  'pagination': {
+                    'current_page': 1,
+                    'last_page': 1,
+                    'per_page': 10,
+                    'total': 0,
+                  },
+                });
+              }
+
+              if (request.method == 'POST' &&
+                  request.url.path == '/api/feed/posts') {
+                final body = jsonDecode(request.body) as Map<String, dynamic>;
+                expect(
+                  body['visibility'],
+                  FeedVisibility.selectedUsers.storageValue,
+                );
+                expect(body['recipient_user_ids'], ['user-9']);
+
+                return _jsonResponse({
+                  'post': _postJson(
+                    id: 'post-9',
+                    visibility: 'selected_users',
+                    visibilityLabel: 'Orang tertentu (1)',
+                    content: 'Private update untuk user tertentu.',
+                  ),
+                }, statusCode: 201);
+              }
+
+              return _jsonResponse({'message': 'Not found'}, statusCode: 404);
+            }),
+          ),
+        );
+        addTearDown(controller.dispose);
+
+        final members = await controller.ensureAudienceMembersLoaded();
+        expect(members, hasLength(1));
+        expect(members.single.id, 'user-9');
+
+        await controller.createPost(
+          content: 'Private update untuk user tertentu.',
+          visibility: FeedVisibility.selectedUsers,
+          recipientUserIds: const ['user-9'],
+        );
+
+        expect(controller.posts.first.visibility, FeedVisibility.selectedUsers);
+      },
+    );
+
+    test('addComment forwards mentioned user ids', () async {
+      final controller = FeedController(
+        sessionController: sessionController,
+        apiClient: GesitApiClient(
+          httpClient: MockClient((request) async {
+            if (request.method == 'POST' &&
+                request.url.path == '/api/feed/posts/post-1/comments') {
+              final body = jsonDecode(request.body) as Map<String, dynamic>;
+              expect(body['mentioned_user_ids'], ['user-7']);
+
+              return _jsonResponse({
+                'post': _postJson(id: 'post-1', commentsCount: 1),
+                'comment': _commentJson(
+                  id: 'comment-7',
+                  content: 'Mention ke Dina dulu ya.',
+                ),
+              }, statusCode: 201);
+            }
+
+            if (request.method == 'GET' &&
+                request.url.path == '/api/feed/posts/post-1') {
+              return _jsonResponse({
+                'post': _postJson(
+                  id: 'post-1',
+                  commentsCount: 1,
+                  comments: [
+                    _commentJson(
+                      id: 'comment-7',
+                      content: 'Mention ke Dina dulu ya.',
+                    ),
+                  ],
+                ),
+              });
+            }
+
+            return _jsonResponse({'message': 'Not found'}, statusCode: 404);
+          }),
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.addComment(
+        postId: 'post-1',
+        content: 'Mention ke Dina dulu ya.',
+        mentionedUserIds: const ['user-7'],
+      );
+
+      expect(controller.threadById('post-1')?.comments.single.id, 'comment-7');
+    });
+
     test('fetchThread keeps reply target metadata on flat replies', () async {
       final controller = FeedController(
         sessionController: sessionController,

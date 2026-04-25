@@ -176,6 +176,40 @@ void main() {
     expect(bodyFields['message_id'], '21');
     expect(bodyFields['action_key'], 's21plus_contact_it');
   });
+
+  test('submission PDF preview fetches bytes with session cookies', () async {
+    late http.Request capturedRequest;
+    final client = GesitApiClient(
+      httpClient: MockClient((request) async {
+        capturedRequest = request;
+        return http.Response.bytes(
+          [0x25, 0x50, 0x44, 0x46],
+          200,
+          headers: {
+            'content-type': 'application/pdf',
+            'content-disposition': 'inline; filename="GESIT_42.pdf"',
+            'set-cookie': 'gesit_session=fresh-cookie; Path=/; HttpOnly',
+          },
+        );
+      }),
+      browserManagedCookies: false,
+    );
+
+    final payload = await client.fetchSubmissionPdfPreview(
+      baseUrl: 'http://127.0.0.1:8000',
+      cookies: const {'gesit_session': 'old-cookie'},
+      submissionId: '42',
+    );
+
+    expect(capturedRequest.method, 'GET');
+    expect(capturedRequest.url.path, '/api/pdf/stream/42');
+    expect(capturedRequest.headers['accept'], 'application/pdf');
+    expect(capturedRequest.headers['cookie'], contains('old-cookie'));
+    expect(payload.bytes, [0x25, 0x50, 0x44, 0x46]);
+    expect(payload.contentType, 'application/pdf');
+    expect(payload.fileName, 'GESIT_42.pdf');
+    expect(payload.cookies['gesit_session'], 'fresh-cookie');
+  });
 }
 
 http.Response _jsonResponse(Map<String, dynamic> body, {int statusCode = 200}) {

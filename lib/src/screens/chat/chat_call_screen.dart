@@ -239,7 +239,8 @@ class _ChatCallScreenState extends State<ChatCallScreen> {
           final textTheme = Theme.of(context).textTheme;
           final mediaState = widget.controller.callMediaState;
           final localRenderer = widget.controller.callMediaEngine.localRenderer;
-          final remoteRenderer = widget.controller.callMediaEngine.remoteRenderer;
+          final remoteRenderer =
+              widget.controller.callMediaEngine.remoteRenderer;
           final remoteParticipants = session.participants
               .where((participant) => !participant.isCurrentUser)
               .toList(growable: false);
@@ -252,51 +253,76 @@ class _ChatCallScreenState extends State<ChatCallScreen> {
             conversation,
             mediaState,
           );
-          final actions = <Widget>[
-            Expanded(
-              child: _CallActionButton(
-                icon: session.micEnabled
-                    ? Icons.mic_rounded
-                    : Icons.mic_off_rounded,
-                label: session.micEnabled ? 'Mic' : 'Muted',
-                foregroundColor: Colors.white,
-                backgroundColor: Colors.white.withValues(alpha: 0.12),
-                onTap: widget.controller.toggleActiveCallMic,
-              ),
-            ),
-            Expanded(
-              child: _CallActionButton(
-                icon: session.speakerEnabled
-                    ? Icons.volume_up_rounded
-                    : Icons.hearing_disabled_rounded,
-                label: 'Speaker',
-                foregroundColor: Colors.white,
-                backgroundColor: Colors.white.withValues(alpha: 0.12),
-                onTap: widget.controller.toggleActiveCallSpeaker,
-              ),
-            ),
-            if (session.type == ChatCallType.video)
-              Expanded(
-                child: _CallActionButton(
-                  icon: session.cameraEnabled
-                      ? Icons.videocam_rounded
-                      : Icons.videocam_off_rounded,
-                  label: 'Camera',
-                  foregroundColor: Colors.white,
-                  backgroundColor: Colors.white.withValues(alpha: 0.12),
-                  onTap: widget.controller.toggleActiveCallCamera,
-                ),
-              ),
-            Expanded(
-              child: _CallActionButton(
-                icon: Icons.call_end_rounded,
-                label: 'End',
-                foregroundColor: Colors.white,
-                backgroundColor: AppColors.red,
-                onTap: () => unawaited(widget.controller.endActiveCall()),
-              ),
-            ),
-          ];
+          final isIncomingRinging =
+              session.isIncoming && session.status == ChatCallStatus.ringing;
+          final actions = isIncomingRinging
+              ? <Widget>[
+                  Expanded(
+                    child: _CallActionButton(
+                      icon: Icons.call_end_rounded,
+                      label: 'Tolak',
+                      foregroundColor: Colors.white,
+                      backgroundColor: AppColors.red,
+                      onTap: () =>
+                          unawaited(widget.controller.declineActiveCall()),
+                    ),
+                  ),
+                  Expanded(
+                    child: _CallActionButton(
+                      icon: Icons.call_rounded,
+                      label: 'Jawab',
+                      foregroundColor: Colors.white,
+                      backgroundColor: AppColors.blue,
+                      onTap: () =>
+                          unawaited(widget.controller.acceptActiveCall()),
+                    ),
+                  ),
+                ]
+              : <Widget>[
+                  Expanded(
+                    child: _CallActionButton(
+                      icon: session.micEnabled
+                          ? Icons.mic_rounded
+                          : Icons.mic_off_rounded,
+                      label: session.micEnabled ? 'Mic' : 'Muted',
+                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.white.withValues(alpha: 0.12),
+                      onTap: widget.controller.toggleActiveCallMic,
+                    ),
+                  ),
+                  Expanded(
+                    child: _CallActionButton(
+                      icon: session.speakerEnabled
+                          ? Icons.volume_up_rounded
+                          : Icons.hearing_disabled_rounded,
+                      label: 'Speaker',
+                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.white.withValues(alpha: 0.12),
+                      onTap: widget.controller.toggleActiveCallSpeaker,
+                    ),
+                  ),
+                  if (session.type == ChatCallType.video)
+                    Expanded(
+                      child: _CallActionButton(
+                        icon: session.cameraEnabled
+                            ? Icons.videocam_rounded
+                            : Icons.videocam_off_rounded,
+                        label: 'Camera',
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.white.withValues(alpha: 0.12),
+                        onTap: widget.controller.toggleActiveCallCamera,
+                      ),
+                    ),
+                  Expanded(
+                    child: _CallActionButton(
+                      icon: Icons.call_end_rounded,
+                      label: 'End',
+                      foregroundColor: Colors.white,
+                      backgroundColor: AppColors.red,
+                      onTap: () => unawaited(widget.controller.endActiveCall()),
+                    ),
+                  ),
+                ];
 
           return Scaffold(
             backgroundColor: Colors.transparent,
@@ -557,9 +583,12 @@ class _RingbackToneSource extends StreamAudioSource {
 
     var sampleOffset = 44;
     for (final segment in segments) {
-      final segmentSampleCount =
-          sampleRate * segment.milliseconds ~/ 1000;
-      for (var sampleIndex = 0; sampleIndex < segmentSampleCount; sampleIndex++) {
+      final segmentSampleCount = sampleRate * segment.milliseconds ~/ 1000;
+      for (
+        var sampleIndex = 0;
+        sampleIndex < segmentSampleCount;
+        sampleIndex++
+      ) {
         final sampleValue = segment.tone
             ? _ringbackSample(
                 sampleIndex,

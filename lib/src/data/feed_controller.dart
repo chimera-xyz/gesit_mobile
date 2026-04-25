@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../config/app_runtime_config.dart';
 import '../models/feed_models.dart';
 import '../models/session_models.dart';
 import 'app_session_controller.dart';
@@ -11,7 +12,7 @@ class FeedController extends ChangeNotifier {
   FeedController({
     required AppSessionController sessionController,
     GesitApiClient? apiClient,
-    Duration autoRefreshInterval = const Duration(seconds: 8),
+    Duration autoRefreshInterval = const Duration(seconds: 20),
   }) : _sessionController = sessionController,
        _apiClient = apiClient ?? GesitApiClient(),
        _autoRefreshInterval = autoRefreshInterval;
@@ -28,22 +29,28 @@ class FeedController extends ChangeNotifier {
   final Set<String> _deletingPostIds = <String>{};
   final Set<String> _deletingCommentIds = <String>{};
   Timer? _autoRefreshTimer;
+  bool _autoRefreshEnabled = true;
 
   List<FeedPost> _posts = const <FeedPost>[];
+  List<FeedAudienceMember> _audienceMembers = const <FeedAudienceMember>[];
   bool _loading = false;
   bool _loadingMore = false;
   bool _loaded = false;
   bool _creatingPost = false;
   bool _autoRefreshing = false;
+  bool _loadingAudienceMembers = false;
   String? _error;
   int _currentPage = 0;
   int _lastPage = 1;
 
   List<FeedPost> get posts => List<FeedPost>.unmodifiable(_posts);
+  List<FeedAudienceMember> get audienceMembers =>
+      List<FeedAudienceMember>.unmodifiable(_audienceMembers);
   bool get loading => _loading;
   bool get loadingMore => _loadingMore;
   bool get loaded => _loaded;
   bool get creatingPost => _creatingPost;
+  bool get loadingAudienceMembers => _loadingAudienceMembers;
   String? get error => _error;
   bool get hasMore => _currentPage < _lastPage;
 
@@ -75,7 +82,9 @@ class FeedController extends ChangeNotifier {
       _deletingCommentIds.contains(commentId);
 
   Future<void> ensureLoaded() async {
-    _startAutoRefresh();
+    if (_autoRefreshEnabled) {
+      _startAutoRefresh();
+    }
 
     if (_loaded || _loading) {
       return;
@@ -246,6 +255,7 @@ class FeedController extends ChangeNotifier {
   Future<FeedPost> createPost({
     required String content,
     required FeedVisibility visibility,
+    List<String> recipientUserIds = const <String>[],
   }) async {
     final session = _requireSession();
     _creatingPost = true;
@@ -257,6 +267,7 @@ class FeedController extends ChangeNotifier {
         cookies: session.cookies,
         content: content,
         visibility: visibility.storageValue,
+        recipientUserIds: recipientUserIds,
       );
       await _sessionController.syncCookies(payload.cookies);
 
@@ -311,6 +322,7 @@ class FeedController extends ChangeNotifier {
     required String postId,
     required String content,
     String? parentId,
+    List<String> mentionedUserIds = const <String>[],
   }) async {
     final session = _requireSession();
     _commentSubmittingPostIds.add(postId);
@@ -323,6 +335,7 @@ class FeedController extends ChangeNotifier {
         postId: postId,
         content: content,
         parentId: parentId,
+        mentionedUserIds: mentionedUserIds,
       );
       await _sessionController.syncCookies(payload.cookies);
 
@@ -440,6 +453,46 @@ class FeedController extends ChangeNotifier {
       rethrow;
     } finally {
       _deletingCommentIds.remove(commentId);
+      notifyListeners();
+    }
+  }
+
+  Future<List<FeedAudienceMember>> ensureAudienceMembersLoaded({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh && _audienceMembers.isNotEmpty) {
+      return audienceMembers;
+    }
+    if (_loadingAudienceMembers && !forceRefresh) {
+      return audienceMembers;
+    }
+
+    final session = _requireSession();
+    _loadingAudienceMembers = true;
+    notifyListeners();
+
+    try {
+      final payload = await _apiClient.fetchFeedAudienceMembers(
+        baseUrl: session.apiBaseUrl,
+        cookies: session.cookies,
+      );
+      await _sessionController.syncCookies(payload.cookies);
+
+      _audienceMembers = ((payload.data['users'] as List?) ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => FeedAudienceMember.fromJson(item.cast<String, dynamic>()),
+          )
+          .where((member) => member.id.trim().isNotEmpty)
+          .toList(growable: false);
+      return audienceMembers;
+    } on GesitApiException catch (error) {
+      if (error.statusCode == 401) {
+        await _sessionController.invalidateSession(errorMessage: error.message);
+      }
+      rethrow;
+    } finally {
+      _loadingAudienceMembers = false;
       notifyListeners();
     }
   }
@@ -562,15 +615,49 @@ class FeedController extends ChangeNotifier {
         _deletingCommentIds.isNotEmpty;
   }
 
+  void setAutoRefreshActive(bool active) {
+    if (_autoRefreshEnabled == active) {
+      return;
+    }
+
+    _autoRefreshEnabled = active;
+    if (_autoRefreshEnabled) {
+      _startAutoRefresh();
+      return;
+    }
+
+    _stopAutoRefresh();
+  }
+
   void _startAutoRefresh() {
-    _autoRefreshTimer ??= Timer.periodic(_autoRefreshInterval, (_) {
+    if (!_autoRefreshEnabled || _autoRefreshTimer != null) {
+      return;
+    }
+
+    final interval = _effectiveAutoRefreshInterval;
+    _autoRefreshTimer = Timer.periodic(interval, (_) {
       unawaited(refresh(silent: true));
     });
   }
 
+  void _stopAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = null;
+  }
+
+  Duration get _effectiveAutoRefreshInterval {
+    if (AppRuntimeConfig.prefersShortPolling(
+      _sessionController.session?.apiBaseUrl,
+    )) {
+      return const Duration(seconds: 60);
+    }
+
+    return _autoRefreshInterval;
+  }
+
   @override
   void dispose() {
-    _autoRefreshTimer?.cancel();
+    _stopAutoRefresh();
     super.dispose();
   }
 }

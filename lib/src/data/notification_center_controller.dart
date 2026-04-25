@@ -3,12 +3,17 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+import '../config/app_runtime_config.dart';
 import '../models/app_models.dart';
 import '../models/session_models.dart';
 import 'app_notification_mapper.dart';
 import 'app_session_controller.dart';
 import 'gesit_api_client.dart';
+import 'local_notification_service.dart';
+import 'push_notification_models.dart';
 import 'push_notification_service.dart';
+
+typedef ForegroundAlertPlayer = Future<void> Function();
 
 class NotificationRemovalSnapshot {
   const NotificationRemovalSnapshot({
@@ -26,14 +31,18 @@ class NotificationCenterController extends ChangeNotifier
     required this.sessionController,
     GesitApiClient? apiClient,
     PushNotificationService? pushNotificationService,
-    Duration autoRefreshInterval = const Duration(seconds: 2),
+    Duration autoRefreshInterval = const Duration(seconds: 15),
     Duration realtimeRetryDelay = const Duration(milliseconds: 650),
     List<AppNotification>? initialNotifications,
+    ForegroundAlertPlayer? foregroundAlertPlayer,
   }) : _apiClient = apiClient ?? GesitApiClient(),
        _pushNotificationService =
            pushNotificationService ?? PushNotificationService.instance,
        _autoRefreshInterval = autoRefreshInterval,
        _realtimeRetryDelay = realtimeRetryDelay,
+       _foregroundAlertPlayer =
+           foregroundAlertPlayer ??
+           LocalNotificationService.instance.playForegroundAlert,
        _notifications = List<AppNotification>.from(
          initialNotifications ?? const <AppNotification>[],
        ) {
@@ -47,6 +56,7 @@ class NotificationCenterController extends ChangeNotifier
   final PushNotificationService? _pushNotificationService;
   final Duration _autoRefreshInterval;
   final Duration _realtimeRetryDelay;
+  final ForegroundAlertPlayer _foregroundAlertPlayer;
 
   final List<AppNotification> _notifications;
   final List<AppNotification> _bannerQueue = [];
@@ -67,6 +77,7 @@ class NotificationCenterController extends ChangeNotifier
   bool _streamLoopRunning = false;
   bool _streamUnavailable = false;
   bool _pushStreamsBound = false;
+  bool _initialUnreadSurfaced = false;
   String? _registeredPushToken;
   int _lastNotificationId = 0;
 
@@ -154,6 +165,30 @@ class NotificationCenterController extends ChangeNotifier
       }
     } catch (_) {
       // Optimistic local state is already updated.
+    }
+  }
+
+  Future<void> markChatConversationAsRead(String conversationId) async {
+    final normalizedConversationId = conversationId.trim();
+    if (normalizedConversationId.isEmpty) {
+      return;
+    }
+
+    final matchingNotificationIds = _notifications
+        .where((notification) {
+          if (notification.isRead ||
+              notification.destination != NotificationDestination.chat) {
+            return false;
+          }
+
+          return _conversationIdFromNotificationLink(notification.link) ==
+              normalizedConversationId;
+        })
+        .map((notification) => notification.id)
+        .toList(growable: false);
+
+    for (final notificationId in matchingNotificationIds) {
+      await markAsRead(notificationId);
     }
   }
 
@@ -345,9 +380,13 @@ class NotificationCenterController extends ChangeNotifier
   Future<void> _bootstrap() async {
     _bindPushStreams();
     await syncLatest(surfaceNew: false);
+    _surfaceInitialUnreadNotifications();
     _consumePendingPushOpenIntent();
+    _streamUnavailable = !_canUseRealtimeStream;
     _startForegroundSync();
-    _ensureRealtimeLoop();
+    if (_canUseRealtimeStream) {
+      _ensureRealtimeLoop();
+    }
     await _registerCurrentPushToken();
   }
 
@@ -358,6 +397,7 @@ class NotificationCenterController extends ChangeNotifier
 
     if (session == null) {
       _stopForegroundSync();
+      _initialUnreadSurfaced = false;
       if (previousSession != null) {
         unawaited(_unregisterPushToken(previousSession));
       }
@@ -369,8 +409,11 @@ class NotificationCenterController extends ChangeNotifier
       return;
     }
 
+    _streamUnavailable = !_canUseRealtimeStream;
     _startForegroundSync();
-    _ensureRealtimeLoop();
+    if (_canUseRealtimeStream) {
+      _ensureRealtimeLoop();
+    }
     unawaited(_registerCurrentPushToken());
   }
 
@@ -415,6 +458,35 @@ class NotificationCenterController extends ChangeNotifier
     unawaited(syncLatest(surfaceNew: false));
   }
 
+  void _surfaceInitialUnreadNotifications() {
+    if (_initialUnreadSurfaced) {
+      return;
+    }
+
+    _initialUnreadSurfaced = true;
+    final unreadNotifications = _notifications
+        .where((notification) => !notification.isRead)
+        .toList(growable: false);
+    if (unreadNotifications.isEmpty) {
+      return;
+    }
+
+    for (final notification in unreadNotifications) {
+      _enqueueBanner(notification);
+    }
+
+    unawaited(_playForegroundAlert());
+    notifyListeners();
+  }
+
+  Future<void> _playForegroundAlert() async {
+    try {
+      await _foregroundAlertPlayer();
+    } catch (_) {
+      // Sound is additive; unread banners should still appear if audio fails.
+    }
+  }
+
   void _handleOpenedPushMessage(PushNotificationEnvelope envelope) {
     final notification = appNotificationFromPushPayload(
       envelope.data,
@@ -431,11 +503,13 @@ class NotificationCenterController extends ChangeNotifier
   }
 
   void _startForegroundSync() {
-    if (_autoRefreshTimer != null || sessionController.session == null) {
+    if (_autoRefreshTimer != null ||
+        sessionController.session == null ||
+        (_canUseRealtimeStream && !_streamUnavailable)) {
       return;
     }
 
-    _autoRefreshTimer = Timer.periodic(_autoRefreshInterval, (_) {
+    _autoRefreshTimer = Timer.periodic(_effectiveAutoRefreshInterval, (_) {
       unawaited(syncLatest(surfaceNew: true));
     });
   }
@@ -446,7 +520,8 @@ class NotificationCenterController extends ChangeNotifier
   }
 
   void _ensureRealtimeLoop() {
-    if (_streamLoopRunning ||
+    if (!_canUseRealtimeStream ||
+        _streamLoopRunning ||
         _streamUnavailable ||
         sessionController.session == null ||
         _disposed) {
@@ -458,6 +533,8 @@ class NotificationCenterController extends ChangeNotifier
   }
 
   Future<void> _runRealtimeLoop() async {
+    _stopForegroundSync();
+
     while (!_disposed &&
         !_streamUnavailable &&
         sessionController.session != null) {
@@ -489,6 +566,7 @@ class NotificationCenterController extends ChangeNotifier
         }
         if (error.statusCode == 404 || error.statusCode == 501) {
           _streamUnavailable = true;
+          _startForegroundSync();
           break;
         }
       } catch (_) {
@@ -505,6 +583,27 @@ class NotificationCenterController extends ChangeNotifier
     }
 
     _streamLoopRunning = false;
+
+    if (!_disposed && sessionController.session != null && _streamUnavailable) {
+      _startForegroundSync();
+    }
+  }
+
+  bool get _canUseRealtimeStream {
+    final session = sessionController.session;
+    if (session == null) {
+      return false;
+    }
+
+    return AppRuntimeConfig.supportsLongLivedRequests(session.apiBaseUrl);
+  }
+
+  Duration get _effectiveAutoRefreshInterval {
+    if (!_canUseRealtimeStream) {
+      return const Duration(seconds: 45);
+    }
+
+    return _autoRefreshInterval;
   }
 
   void _applyRealtimePayload(Map<String, dynamic> payload) {
@@ -654,6 +753,10 @@ class NotificationCenterController extends ChangeNotifier
   Future<void> _registerCurrentPushToken() async {
     final session = sessionController.session;
     final pushService = _pushNotificationService;
+    if (pushService != null &&
+        (pushService.currentToken?.trim().isEmpty ?? true)) {
+      await pushService.refreshToken();
+    }
     final token = pushService?.currentToken?.trim();
 
     if (session == null ||
@@ -760,6 +863,20 @@ class NotificationCenterController extends ChangeNotifier
     }
 
     return null;
+  }
+
+  String? _conversationIdFromNotificationLink(String? link) {
+    if (link == null || link.isEmpty) {
+      return null;
+    }
+
+    final match = RegExp(r'/chat/conversations/([^/?#]+)').firstMatch(link);
+    final conversationId = match?.group(1)?.trim();
+    if (conversationId == null || conversationId.isEmpty) {
+      return null;
+    }
+
+    return conversationId;
   }
 
   String get _platformName {

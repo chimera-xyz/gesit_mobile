@@ -62,12 +62,25 @@ AppNotificationType _typeFromPayload(String rawType, String? link) {
     case 'approval_needed':
     case 'signature_required':
       return AppNotificationType.approval;
+    case 'chat_message':
+      return AppNotificationType.chat;
+    case 'chat_call':
+      return AppNotificationType.call;
+    case 'feed_thread':
+    case 'feed_comment':
+    case 'feed_mention':
+      return AppNotificationType.system;
     case 'status_changed':
       if (link != null && link.contains('/helpdesk')) {
         return AppNotificationType.helpdesk;
       }
       return AppNotificationType.system;
     case 'general':
+      if (link != null && link.contains('/chat/conversations')) {
+        return link.contains('call=')
+            ? AppNotificationType.call
+            : AppNotificationType.chat;
+      }
       if (link != null && link.contains('/helpdesk')) {
         return AppNotificationType.helpdesk;
       }
@@ -85,6 +98,12 @@ NotificationDestination _destinationFromLink(String? link) {
     return NotificationDestination.none;
   }
 
+  if (link.contains('/feed/posts')) {
+    return NotificationDestination.feed;
+  }
+  if (link.contains('/chat/conversations')) {
+    return NotificationDestination.chat;
+  }
   if (link.contains('/helpdesk')) {
     return NotificationDestination.helpdesk;
   }
@@ -106,6 +125,8 @@ NotificationDestination _destinationFromLink(String? link) {
 
 String _detailFromDestination(NotificationDestination destination) {
   switch (destination) {
+    case NotificationDestination.feed:
+      return 'Buka thread feed untuk melihat percakapan terbaru.';
     case NotificationDestination.tasks:
       return 'Buka modul Tasks untuk melihat detail pengajuan terkait.';
     case NotificationDestination.forms:
@@ -125,6 +146,8 @@ String _detailFromDestination(NotificationDestination destination) {
 
 String? _primaryActionLabel(NotificationDestination destination) {
   switch (destination) {
+    case NotificationDestination.feed:
+      return 'Buka thread';
     case NotificationDestination.tasks:
       return 'Buka task';
     case NotificationDestination.forms:

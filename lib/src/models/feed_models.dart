@@ -37,7 +37,35 @@ class FeedAuthor {
   }
 }
 
-enum FeedVisibility { publicScope, department, privateScope }
+class FeedAudienceMember {
+  const FeedAudienceMember({
+    required this.id,
+    required this.name,
+    required this.initials,
+    required this.primaryRole,
+    this.department,
+  });
+
+  final String id;
+  final String name;
+  final String initials;
+  final String primaryRole;
+  final String? department;
+
+  factory FeedAudienceMember.fromJson(Map<String, dynamic> json) {
+    final author = FeedAuthor.fromJson(json);
+
+    return FeedAudienceMember(
+      id: author.id,
+      name: author.name,
+      initials: author.initials,
+      primaryRole: author.primaryRole,
+      department: author.department,
+    );
+  }
+}
+
+enum FeedVisibility { publicScope, department, selectedUsers, privateScope }
 
 extension FeedVisibilityX on FeedVisibility {
   String get storageValue {
@@ -46,6 +74,8 @@ extension FeedVisibilityX on FeedVisibility {
         return 'public';
       case FeedVisibility.department:
         return 'department';
+      case FeedVisibility.selectedUsers:
+        return 'selected_users';
       case FeedVisibility.privateScope:
         return 'private';
     }
@@ -55,6 +85,8 @@ extension FeedVisibilityX on FeedVisibility {
     switch (value) {
       case 'department':
         return FeedVisibility.department;
+      case 'selected_users':
+        return FeedVisibility.selectedUsers;
       case 'private':
         return FeedVisibility.privateScope;
       case 'public':
@@ -197,6 +229,8 @@ class FeedPost {
     this.likedByMe = false,
     this.canDelete = false,
     this.comments = const <FeedComment>[],
+    this.selectedRecipientCount = 0,
+    this.audienceUserIds = const <String>[],
   });
 
   final String id;
@@ -212,6 +246,8 @@ class FeedPost {
   final bool likedByMe;
   final bool canDelete;
   final List<FeedComment> comments;
+  final int selectedRecipientCount;
+  final List<String> audienceUserIds;
 
   FeedPost copyWith({
     String? id,
@@ -227,6 +263,8 @@ class FeedPost {
     bool? likedByMe,
     bool? canDelete,
     List<FeedComment>? comments,
+    int? selectedRecipientCount,
+    List<String>? audienceUserIds,
   }) {
     return FeedPost(
       id: id ?? this.id,
@@ -242,6 +280,9 @@ class FeedPost {
       likedByMe: likedByMe ?? this.likedByMe,
       canDelete: canDelete ?? this.canDelete,
       comments: comments ?? this.comments,
+      selectedRecipientCount:
+          selectedRecipientCount ?? this.selectedRecipientCount,
+      audienceUserIds: audienceUserIds ?? this.audienceUserIds,
     );
   }
 
@@ -266,6 +307,12 @@ class FeedPost {
       commentsCount: (json['comments_count'] as num?)?.toInt() ?? 0,
       likedByMe: json['liked_by_me'] == true,
       canDelete: json['can_delete'] == true,
+      selectedRecipientCount:
+          (json['selected_recipient_count'] as num?)?.toInt() ?? 0,
+      audienceUserIds: ((json['audience_user_ids'] as List?) ?? const [])
+          .map((item) => '$item')
+          .where((item) => item.trim().isNotEmpty)
+          .toList(growable: false),
       comments: ((json['comments'] as List?) ?? const [])
           .whereType<Map>()
           .map((item) => FeedComment.fromJson(item.cast<String, dynamic>()))
@@ -287,6 +334,8 @@ class FeedPost {
       'comments_count': commentsCount,
       'liked_by_me': likedByMe,
       'can_delete': canDelete,
+      'selected_recipient_count': selectedRecipientCount,
+      'audience_user_ids': audienceUserIds,
       'comments': comments
           .map((comment) => comment.toJson())
           .toList(growable: false),
