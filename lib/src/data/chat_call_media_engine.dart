@@ -312,7 +312,7 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
     return _enqueue(() async {
       final audioTracks = _localStream?.getAudioTracks() ?? const [];
       for (final track in audioTracks) {
-        track.enabled = enabled;
+        await _setTrackMicrophoneEnabled(track, enabled);
       }
       _updateState(_state.copyWith(micEnabled: enabled, errorMessage: null));
     });
@@ -453,6 +453,12 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
   }
 
   Future<void> _configureAudio() async {
+    try {
+      await Helper.ensureAudioSession();
+    } catch (error) {
+      debugPrint('Audio session setup failed: $error');
+    }
+
     if (WebRTC.platformIsAndroid) {
       try {
         await Helper.setAndroidAudioConfiguration(
@@ -518,6 +524,9 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
     _peerConnection = await createPeerConnection(<String, dynamic>{
       'iceServers': CallRuntimeConfig.iceServers,
       'sdpSemantics': 'unified-plan',
+      'bundlePolicy': 'max-bundle',
+      'rtcpMuxPolicy': 'require',
+      'iceCandidatePoolSize': 4,
     });
 
     _peerConnection!.onIceCandidate = (candidate) {
@@ -539,22 +548,42 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
     };
 
     _peerConnection!.onConnectionState = (state) {
-      _updateState(_state.copyWith(connectionState: state, errorMessage: null));
+      _updateState(
+        _state.copyWith(
+          connectionState: state,
+          errorMessage: _connectionErrorForState(state),
+        ),
+      );
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        unawaited(_applySpeakerRoute(_state.speakerEnabled));
+      }
     };
 
     _peerConnection!.onIceConnectionState = (state) {
       _updateState(
-        _state.copyWith(iceConnectionState: state, errorMessage: null),
+        _state.copyWith(
+          iceConnectionState: state,
+          errorMessage: _iceConnectionErrorForState(state),
+        ),
       );
+      if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+        unawaited(_applySpeakerRoute(_state.speakerEnabled));
+      }
     };
 
     _peerConnection!.onTrack = (event) {
       unawaited(_handleRemoteTrack(event));
     };
 
+    _peerConnection!.onAddTrack = (stream, track) {
+      unawaited(_handleRemoteStreamTrack(stream, track));
+    };
+
     _peerConnection!.onAddStream = (stream) {
       _remoteStream = stream;
       _remoteRenderer?.srcObject = stream;
+      unawaited(_activateRemoteAudio(stream));
       _updateRemoteMediaState();
     };
 
@@ -583,7 +612,13 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
     final stream = event.streams.isNotEmpty
         ? event.streams.first
         : await _ensureRemoteStream();
-    final track = event.track;
+    await _handleRemoteStreamTrack(stream, event.track);
+  }
+
+  Future<void> _handleRemoteStreamTrack(
+    MediaStream stream,
+    MediaStreamTrack track,
+  ) async {
     final knownTrackIds = stream.getTracks().map((item) => item.id).toSet();
     if (!knownTrackIds.contains(track.id)) {
       await stream.addTrack(track);
@@ -591,6 +626,9 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
 
     _remoteStream = stream;
     _remoteRenderer?.srcObject = stream;
+    if (track.kind == 'audio') {
+      await _activateRemoteAudio(stream);
+    }
     _updateRemoteMediaState();
   }
 
@@ -610,7 +648,7 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
   Future<void> _applyLocalTrackState(ChatCallSession session) async {
     final audioTracks = _localStream?.getAudioTracks() ?? const [];
     for (final track in audioTracks) {
-      track.enabled = session.micEnabled;
+      await _setTrackMicrophoneEnabled(track, session.micEnabled);
     }
 
     final videoTracks = _localStream?.getVideoTracks() ?? const [];
@@ -643,6 +681,30 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
       debugPrint('Speaker route update failed: $error');
     }
     _updateState(_state.copyWith(speakerEnabled: enabled));
+  }
+
+  Future<void> _setTrackMicrophoneEnabled(
+    MediaStreamTrack track,
+    bool enabled,
+  ) async {
+    try {
+      await Helper.setMicrophoneMute(!enabled, track);
+    } catch (error) {
+      debugPrint('Microphone mute update failed: $error');
+      track.enabled = enabled;
+    }
+  }
+
+  Future<void> _activateRemoteAudio(MediaStream stream) async {
+    for (final track in stream.getAudioTracks()) {
+      track.enabled = true;
+      try {
+        await Helper.setVolume(1.0, track);
+      } catch (error) {
+        debugPrint('Remote audio volume update failed: $error');
+      }
+    }
+    await _applySpeakerRoute(_state.speakerEnabled);
   }
 
   Future<void> _createAndSendOffer() async {
@@ -1029,5 +1091,26 @@ class WebRtcChatCallMediaEngine extends ChatCallMediaEngine {
       return 'Perangkat media berhenti merespons. Coba mulai ulang panggilan.';
     }
     return 'Media call belum bisa diaktifkan.';
+  }
+
+  String? _connectionErrorForState(RTCPeerConnectionState state) {
+    if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+      return _mediaConnectionHelpMessage;
+    }
+    return null;
+  }
+
+  String? _iceConnectionErrorForState(RTCIceConnectionState state) {
+    if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+      return _mediaConnectionHelpMessage;
+    }
+    if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
+      return 'Media call terputus sementara. Mencoba menyambungkan ulang...';
+    }
+    return null;
+  }
+
+  String get _mediaConnectionHelpMessage {
+    return 'Media call belum tersambung. Pastikan jaringan stabil; jika perangkat beda jaringan/VPN, TURN relay harus aktif.';
   }
 }

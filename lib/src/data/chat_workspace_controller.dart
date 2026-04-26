@@ -497,6 +497,10 @@ class ChatWorkspaceController extends ChangeNotifier {
     }
   }
 
+  Future<void> announceActiveCallReady() {
+    return _broadcastCurrentCallMediaState(signalType: 'ready');
+  }
+
   ChatCallSession? prepareOutgoingCall(
     String conversationId, {
     required ChatCallType type,
@@ -2186,6 +2190,7 @@ class ChatWorkspaceController extends ChangeNotifier {
     await sendActiveCallSignal(
       signalType,
       payload: {
+        if (signalType == 'ready') 'ready': true,
         'mic_enabled': session.micEnabled,
         'camera_enabled': session.cameraEnabled,
         'speaker_enabled': session.speakerEnabled,

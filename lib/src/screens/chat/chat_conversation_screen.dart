@@ -273,6 +273,38 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  List<ChatMessage> _imageMessagesFrom(List<ChatMessage> messages) {
+    return messages
+        .where((message) => message.hasAttachment && _messageHasImage(message))
+        .toList(growable: false);
+  }
+
+  Future<void> _openImageViewer(
+    ChatMessage message,
+    List<ChatMessage> imageMessages,
+  ) async {
+    if (imageMessages.isEmpty) {
+      return;
+    }
+
+    final initialIndex = imageMessages.indexWhere(
+      (item) => item.id == message.id,
+    );
+    await Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: false,
+        barrierColor: Colors.black,
+        pageBuilder: (_, __, ___) => _ChatImageViewer(
+          messages: imageMessages,
+          initialIndex: initialIndex < 0 ? 0 : initialIndex,
+        ),
+        transitionsBuilder: (_, animation, __, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+      ),
+    );
+  }
+
   void _scrollToBottom({bool jump = false}) {
     if (!mounted || !_scrollController.hasClients) {
       return;
@@ -337,6 +369,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         }
 
         final messages = widget.controller.messagesFor(widget.conversationId);
+        final imageMessages = _imageMessagesFrom(messages);
         final textTheme = Theme.of(context).textTheme;
         final canSend = _composerController.text.trim().isNotEmpty;
         final subtitle = conversation.isGroup
@@ -421,6 +454,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                         return _MessageBubble(
                           message: message,
                           isGroup: conversation.isGroup,
+                          onOpenImage: _messageHasImage(message)
+                              ? () => _openImageViewer(message, imageMessages)
+                              : null,
                         );
                       },
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -558,10 +594,15 @@ class _ChatComposerSendButton extends StatelessWidget {
 }
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.message, required this.isGroup});
+  const _MessageBubble({
+    required this.message,
+    required this.isGroup,
+    this.onOpenImage,
+  });
 
   final ChatMessage message;
   final bool isGroup;
+  final VoidCallback? onOpenImage;
 
   @override
   Widget build(BuildContext context) {
@@ -643,6 +684,7 @@ class _MessageBubble extends StatelessWidget {
                   backgroundColor: message.isMine
                       ? Colors.white.withValues(alpha: 0.14)
                       : AppColors.surfaceAlt,
+                  onOpenImage: onOpenImage,
                 ),
               if (message.isVoiceNote)
                 _VoiceNoteBubbleBody(
@@ -710,15 +752,17 @@ class _AttachmentBubbleBody extends StatelessWidget {
     required this.message,
     required this.textColor,
     required this.backgroundColor,
+    this.onOpenImage,
   });
 
   final ChatMessage message;
   final Color textColor;
   final Color backgroundColor;
+  final VoidCallback? onOpenImage;
 
   @override
   Widget build(BuildContext context) {
-    final isImage = _isImageMimeType(message.attachmentMimeType);
+    final isImage = _messageHasImage(message);
 
     return Container(
       width: isImage ? 230 : null,
@@ -729,11 +773,17 @@ class _AttachmentBubbleBody extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
       ),
       child: isImage
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: _AttachmentPreviewImage(message: message),
+          ? GestureDetector(
+              onTap: onOpenImage,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: Hero(
+                    tag: _imageHeroTag(message),
+                    child: _AttachmentPreviewImage(message: message),
+                  ),
+                ),
               ),
             )
           : Row(
@@ -778,44 +828,290 @@ class _AttachmentBubbleBody extends StatelessWidget {
 }
 
 class _AttachmentPreviewImage extends StatelessWidget {
-  const _AttachmentPreviewImage({required this.message});
+  const _AttachmentPreviewImage({
+    required this.message,
+    this.fit = BoxFit.cover,
+    this.backgroundColor = AppColors.surfaceAlt,
+  });
 
   final ChatMessage message;
+  final BoxFit fit;
+  final Color backgroundColor;
 
   @override
   Widget build(BuildContext context) {
     if (message.attachmentPreviewBytes case final previewBytes?
         when previewBytes.isNotEmpty) {
-      return Image.memory(previewBytes, fit: BoxFit.cover);
+      return ColoredBox(
+        color: backgroundColor,
+        child: Image.memory(previewBytes, fit: fit),
+      );
     }
 
     if (message.attachmentUrl case final attachmentUrl?
         when attachmentUrl.trim().isNotEmpty) {
-      return Image.network(
-        attachmentUrl,
-        fit: BoxFit.cover,
-        webHtmlElementStrategy: kIsWeb
-            ? WebHtmlElementStrategy.prefer
-            : WebHtmlElementStrategy.never,
-        errorBuilder: (_, __, ___) => const _AttachmentPreviewFallback(),
+      return ColoredBox(
+        color: backgroundColor,
+        child: Image.network(
+          attachmentUrl,
+          fit: fit,
+          webHtmlElementStrategy: kIsWeb
+              ? WebHtmlElementStrategy.prefer
+              : WebHtmlElementStrategy.never,
+          errorBuilder: (_, __, ___) =>
+              _AttachmentPreviewFallback(backgroundColor: backgroundColor),
+        ),
       );
     }
 
-    return const _AttachmentPreviewFallback();
+    return _AttachmentPreviewFallback(backgroundColor: backgroundColor);
   }
 }
 
 class _AttachmentPreviewFallback extends StatelessWidget {
-  const _AttachmentPreviewFallback();
+  const _AttachmentPreviewFallback({
+    this.backgroundColor = AppColors.surfaceAlt,
+  });
+
+  final Color backgroundColor;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: AppColors.surfaceAlt,
+      color: backgroundColor,
       alignment: Alignment.center,
       child: const Icon(
         Icons.image_not_supported_outlined,
         color: AppColors.inkMuted,
+      ),
+    );
+  }
+}
+
+class _ChatImageViewer extends StatefulWidget {
+  const _ChatImageViewer({required this.messages, required this.initialIndex});
+
+  final List<ChatMessage> messages;
+  final int initialIndex;
+
+  @override
+  State<_ChatImageViewer> createState() => _ChatImageViewerState();
+}
+
+class _ChatImageViewerState extends State<_ChatImageViewer> {
+  late final PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex
+        .clamp(0, widget.messages.length - 1)
+        .toInt();
+    _pageController = PageController(initialPage: _currentIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _goTo(int index) {
+    if (index < 0 || index >= widget.messages.length) {
+      return;
+    }
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final message = widget.messages[_currentIndex];
+    final hasMultiple = widget.messages.length > 1;
+    final title = message.attachmentLabel?.trim().isNotEmpty == true
+        ? message.attachmentLabel!.trim()
+        : 'Foto';
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(color: Colors.white),
+                            ),
+                            if (hasMultiple)
+                              Text(
+                                '${_currentIndex + 1}/${widget.messages.length}',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(color: Colors.white70),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: widget.messages.length,
+                    onPageChanged: (index) {
+                      setState(() => _currentIndex = index);
+                    },
+                    itemBuilder: (context, index) {
+                      final item = widget.messages[index];
+                      return InteractiveViewer(
+                        minScale: 1,
+                        maxScale: 4.5,
+                        child: Center(
+                          child: Hero(
+                            tag: _imageHeroTag(item),
+                            child: _AttachmentPreviewImage(
+                              message: item,
+                              fit: BoxFit.contain,
+                              backgroundColor: Colors.black,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                if (message.text.trim().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        message.text.trim(),
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodyMedium?.copyWith(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                if (hasMultiple)
+                  SizedBox(
+                    height: 76,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+                      itemCount: widget.messages.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) {
+                        final item = widget.messages[index];
+                        final selected = index == _currentIndex;
+                        return GestureDetector(
+                          onTap: () => _goTo(index),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            width: 54,
+                            height: 54,
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: selected
+                                    ? Colors.white
+                                    : Colors.white.withValues(alpha: 0.22),
+                                width: selected ? 2 : 1,
+                              ),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(9),
+                              child: _AttachmentPreviewImage(
+                                message: item,
+                                backgroundColor: Colors.black,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  )
+                else
+                  const SizedBox(height: 14),
+              ],
+            ),
+            if (hasMultiple) ...[
+              Positioned(
+                left: 10,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: _ImageViewerNavButton(
+                    icon: Icons.chevron_left_rounded,
+                    onTap: _currentIndex == 0
+                        ? null
+                        : () => _goTo(_currentIndex - 1),
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 10,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: _ImageViewerNavButton(
+                    icon: Icons.chevron_right_rounded,
+                    onTap: _currentIndex == widget.messages.length - 1
+                        ? null
+                        : () => _goTo(_currentIndex + 1),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ImageViewerNavButton extends StatelessWidget {
+  const _ImageViewerNavButton({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      opacity: onTap == null ? 0.24 : 1,
+      duration: const Duration(milliseconds: 160),
+      child: IconButton.filled(
+        onPressed: onTap,
+        style: IconButton.styleFrom(
+          backgroundColor: Colors.black.withValues(alpha: 0.38),
+          foregroundColor: Colors.white,
+        ),
+        icon: Icon(icon),
       ),
     );
   }
@@ -1581,6 +1877,35 @@ class _VoiceNoteComposerSheetState extends State<_VoiceNoteComposerSheet> {
 
 bool _isImageMimeType(String? mimeType) =>
     mimeType?.startsWith('image/') == true;
+
+bool _messageHasImage(ChatMessage message) {
+  if (_isImageMimeType(message.attachmentMimeType)) {
+    return true;
+  }
+
+  final label = message.attachmentLabel?.trim().toLowerCase();
+  if (label == null || label.isEmpty) {
+    return false;
+  }
+
+  final extension = label.split('.').last;
+  if (extension == label) {
+    return false;
+  }
+
+  return <String>{
+    'jpg',
+    'jpeg',
+    'png',
+    'gif',
+    'webp',
+    'bmp',
+    'heic',
+    'heif',
+  }.contains(extension);
+}
+
+String _imageHeroTag(ChatMessage message) => 'chat-image-${message.id}';
 
 List<int>? _headerBytes(Uint8List? bytes) {
   if (bytes == null || bytes.isEmpty) {

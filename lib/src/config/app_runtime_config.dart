@@ -3,7 +3,8 @@ import 'package:flutter/foundation.dart';
 class AppRuntimeConfig {
   const AppRuntimeConfig._();
 
-  static const String _officeLanApiBaseUrl = 'http://192.168.1.24:8000';
+  static const String _officeLanApiBaseUrl = 'http://192.168.1.3:8000';
+  static const String _previousOfficeLanApiBaseUrl = 'http://192.168.1.24:8000';
   static const String _legacyOfficeLanApiBaseUrl = 'http://192.168.81.6:8000';
 
   // Development override: change this one line when the mobile app needs a
@@ -192,8 +193,9 @@ class AppRuntimeConfig {
       return true;
     }
 
-    if (normalized == _legacyOfficeLanApiBaseUrl &&
-        defaultApiBaseUrl != _legacyOfficeLanApiBaseUrl) {
+    if ((normalized == _previousOfficeLanApiBaseUrl ||
+            normalized == _legacyOfficeLanApiBaseUrl) &&
+        defaultApiBaseUrl != normalized) {
       return true;
     }
 

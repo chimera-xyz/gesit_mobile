@@ -39,12 +39,7 @@ class _ChatCallScreenState extends State<ChatCallScreen> {
     _ringbackPlayer = AudioPlayer();
     widget.controller.addListener(_handleControllerUpdate);
     _syncRingbackTone();
-    unawaited(
-      widget.controller.sendActiveCallSignal(
-        'ready',
-        payload: const <String, dynamic>{'ready': true},
-      ),
-    );
+    unawaited(widget.controller.announceActiveCallReady());
   }
 
   @override
@@ -400,6 +395,12 @@ class _ChatCallScreenState extends State<ChatCallScreen> {
                                 session: session,
                                 mediaState: mediaState,
                                 remoteRenderer: remoteRenderer,
+                                localRenderer: localRenderer,
+                                selfParticipant: selfParticipant,
+                                showSelfPreview:
+                                    mediaState.hasLocalVideo &&
+                                    session.cameraEnabled,
+                                isFrontCamera: mediaState.isFrontCamera,
                               )
                             : _VoiceCallStage(
                                 accentColor: accentColor,
@@ -462,22 +463,6 @@ class _ChatCallScreenState extends State<ChatCallScreen> {
                         ],
                       ),
                     ),
-                    if (session.type == ChatCallType.video)
-                      Align(
-                        alignment: Alignment.bottomRight,
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(0, 0, 22, 18),
-                          child: _SelfPreviewCard(
-                            participant: selfParticipant,
-                            accentColor: accentColor,
-                            renderer: localRenderer,
-                            showLivePreview:
-                                mediaState.hasLocalVideo &&
-                                session.cameraEnabled,
-                            isFrontCamera: mediaState.isFrontCamera,
-                          ),
-                        ),
-                      ),
                   ],
                 ),
               ),
@@ -694,12 +679,16 @@ class _VoiceCallStage extends StatelessWidget {
     return Stack(
       children: [
         if (remoteRenderer != null)
-          Offstage(
-            offstage: true,
-            child: SizedBox(
-              width: 1,
-              height: 1,
-              child: RTCVideoView(remoteRenderer!),
+          Positioned(
+            left: -4,
+            top: -4,
+            width: 1,
+            height: 1,
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: 0.01,
+                child: RTCVideoView(remoteRenderer!),
+              ),
             ),
           ),
         Column(
@@ -758,13 +747,21 @@ class _VideoCallStage extends StatelessWidget {
     required this.accentColor,
     required this.session,
     required this.mediaState,
+    required this.selfParticipant,
+    this.localRenderer,
     this.remoteRenderer,
+    this.showSelfPreview = false,
+    this.isFrontCamera = true,
   });
 
   final Color accentColor;
   final ChatCallSession session;
   final ChatCallMediaState mediaState;
+  final ChatCallParticipant selfParticipant;
+  final RTCVideoRenderer? localRenderer;
   final RTCVideoRenderer? remoteRenderer;
+  final bool showSelfPreview;
+  final bool isFrontCamera;
 
   @override
   Widget build(BuildContext context) {
@@ -776,29 +773,67 @@ class _VideoCallStage extends StatelessWidget {
         : remoteParticipants.length;
     final crossAxisCount = itemCount > 1 ? 2 : 1;
 
-    return GridView.builder(
-      physics: const ClampingScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: itemCount > 1 ? 0.86 : 0.74,
-      ),
-      itemCount: itemCount,
-      itemBuilder: (context, index) {
-        final participant = remoteParticipants.isEmpty
-            ? session.participants.first
-            : remoteParticipants[index];
-        return _VideoParticipantTile(
-          accentColor: accentColor,
-          participant: participant,
-          renderer: index == 0 ? remoteRenderer : null,
-          showLiveVideo:
-              index == 0 &&
-              mediaState.hasRemoteVideo &&
-              participant.isVideoEnabled,
-        );
-      },
+    final participant = remoteParticipants.isEmpty
+        ? session.participants.first
+        : remoteParticipants.first;
+    final callTiles = itemCount == 1
+        ? _VideoParticipantTile(
+            accentColor: accentColor,
+            participant: participant,
+            renderer: remoteRenderer,
+            showLiveVideo: mediaState.hasRemoteVideo,
+          )
+        : GridView.builder(
+            physics: const ClampingScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 0.86,
+            ),
+            itemCount: itemCount,
+            itemBuilder: (context, index) {
+              final participant = remoteParticipants[index];
+              return _VideoParticipantTile(
+                accentColor: accentColor,
+                participant: participant,
+                renderer: index == 0 ? remoteRenderer : null,
+                showLiveVideo:
+                    index == 0 &&
+                    mediaState.hasRemoteVideo &&
+                    participant.isVideoEnabled,
+              );
+            },
+          );
+
+    return Stack(
+      children: [
+        Positioned.fill(child: callTiles),
+        if (remoteRenderer != null && !mediaState.hasRemoteVideo)
+          Positioned(
+            left: -4,
+            top: -4,
+            width: 1,
+            height: 1,
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: 0.01,
+                child: RTCVideoView(remoteRenderer!),
+              ),
+            ),
+          ),
+        Positioned(
+          right: 12,
+          bottom: 12,
+          child: _SelfPreviewCard(
+            participant: selfParticipant,
+            accentColor: accentColor,
+            renderer: localRenderer,
+            showLivePreview: showSelfPreview,
+            isFrontCamera: isFrontCamera,
+          ),
+        ),
+      ],
     );
   }
 }
