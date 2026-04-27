@@ -361,8 +361,10 @@ class _FeedThreadScreenState extends State<FeedThreadScreen> {
       builder: (context, _) {
         final post = _post;
         final isLoading = widget.controller.isThreadLoading(widget.postId);
+        final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
 
         return Scaffold(
+          resizeToAvoidBottomInset: true,
           backgroundColor: AppColors.canvasTop,
           appBar: AppBar(
             backgroundColor: AppColors.canvasTop,
@@ -390,6 +392,8 @@ class _FeedThreadScreenState extends State<FeedThreadScreen> {
               child: post == null && isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : ListView(
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
                       children: [
                         if (_loadError != null && post == null)
@@ -446,107 +450,115 @@ class _FeedThreadScreenState extends State<FeedThreadScreen> {
                     ),
             ),
           ),
-          bottomNavigationBar: ColoredBox(
-            color: AppColors.canvasTop,
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: BrandSurface(
-                  radius: 24,
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_replyingTo != null)
-                        Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.blue.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Membalas ${_replyingTo!.author.name}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(
-                                        color: AppColors.blue,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                ),
-                              ),
-                              InkWell(
-                                onTap: _clearReplyTarget,
-                                borderRadius: BorderRadius.circular(999),
-                                child: const Padding(
-                                  padding: EdgeInsets.all(2),
-                                  child: Icon(
-                                    Icons.close_rounded,
-                                    size: 18,
-                                    color: AppColors.blue,
+          bottomNavigationBar: AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.only(bottom: keyboardInset),
+            child: ColoredBox(
+              color: AppColors.canvasTop,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: BrandSurface(
+                    radius: 24,
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_replyingTo != null)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.blue.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Membalas ${_replyingTo!.author.name}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: AppColors.blue,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          IconButton(
-                            tooltip: 'Mention user',
-                            onPressed: () => unawaited(_pickMention()),
-                            icon: const Icon(Icons.alternate_email_rounded),
-                          ),
-                          Expanded(
-                            child: TextField(
-                              controller: _commentController,
-                              minLines: 1,
-                              maxLines: 4,
-                              decoration: InputDecoration(
-                                hintText: _replyingTo == null
-                                    ? 'Tulis komentar...'
-                                    : 'Tulis balasan...',
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          FilledButton(
-                            onPressed:
-                                widget.controller.isCommentSubmitting(
-                                  widget.postId,
-                                )
-                                ? null
-                                : () => unawaited(_submitComment()),
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size(54, 54),
-                              padding: EdgeInsets.zero,
-                            ),
-                            child:
-                                widget.controller.isCommentSubmitting(
-                                  widget.postId,
-                                )
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
+                                InkWell(
+                                  onTap: _clearReplyTarget,
+                                  borderRadius: BorderRadius.circular(999),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(2),
+                                    child: Icon(
+                                      Icons.close_rounded,
+                                      size: 18,
+                                      color: AppColors.blue,
                                     ),
-                                  )
-                                : const Icon(Icons.send_rounded),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
-                    ],
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            IconButton(
+                              tooltip: 'Mention user',
+                              onPressed: () => unawaited(_pickMention()),
+                              icon: const Icon(Icons.alternate_email_rounded),
+                            ),
+                            Expanded(
+                              child: TextField(
+                                controller: _commentController,
+                                minLines: 1,
+                                maxLines: 4,
+                                keyboardType: TextInputType.multiline,
+                                textCapitalization:
+                                    TextCapitalization.sentences,
+                                decoration: InputDecoration(
+                                  hintText: _replyingTo == null
+                                      ? 'Tulis komentar...'
+                                      : 'Tulis balasan...',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            FilledButton(
+                              onPressed:
+                                  widget.controller.isCommentSubmitting(
+                                    widget.postId,
+                                  )
+                                  ? null
+                                  : () => unawaited(_submitComment()),
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size(54, 54),
+                                padding: EdgeInsets.zero,
+                              ),
+                              child:
+                                  widget.controller.isCommentSubmitting(
+                                    widget.postId,
+                                  )
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.send_rounded),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

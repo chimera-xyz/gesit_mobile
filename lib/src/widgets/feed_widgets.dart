@@ -388,7 +388,6 @@ class _FeedComposerSheetState extends State<_FeedComposerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final canSubmit =
         _controller.text.trim().isNotEmpty &&
         (_visibility != FeedVisibility.selectedUsers ||
@@ -397,207 +396,250 @@ class _FeedComposerSheetState extends State<_FeedComposerSheet> {
         .where((member) => _selectedAudienceUserIds.contains(member.id))
         .toList(growable: false);
 
-    return Padding(
+    return _KeyboardAwareSheetFrame(
+      radius: 30,
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.borderStrong,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            'Tulis update',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: AppColors.ink,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _audienceDescription(
+              _visibility,
+              userDivisionLabel: widget.userDivisionLabel,
+            ),
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 18),
+          SegmentedButton<FeedVisibility>(
+            segments: [
+              const ButtonSegment(
+                value: FeedVisibility.publicScope,
+                icon: Icon(Icons.public_rounded),
+                label: Text('Semua'),
+              ),
+              ButtonSegment(
+                value: FeedVisibility.department,
+                icon: const Icon(Icons.groups_rounded),
+                label: Text(
+                  widget.userDivisionLabel.trim().isEmpty ? 'Divisi' : 'Divisi',
+                ),
+              ),
+              const ButtonSegment(
+                value: FeedVisibility.selectedUsers,
+                icon: Icon(Icons.alternate_email_rounded),
+                label: Text('Tertentu'),
+              ),
+              const ButtonSegment(
+                value: FeedVisibility.privateScope,
+                icon: Icon(Icons.lock_rounded),
+                label: Text('Private'),
+              ),
+            ],
+            selected: <FeedVisibility>{_visibility},
+            onSelectionChanged: (selection) {
+              setState(() {
+                _visibility = selection.first;
+              });
+            },
+          ),
+          if (_visibility == FeedVisibility.selectedUsers) ...[
+            const SizedBox(height: 18),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceAlt,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Penerima thread',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: widget.audienceMembers.isEmpty
+                            ? null
+                            : () async {
+                                final nextSelection =
+                                    await showFeedAudienceSelectionSheet(
+                                      context,
+                                      audienceMembers: widget.audienceMembers,
+                                      initialSelectedIds:
+                                          _selectedAudienceUserIds,
+                                    );
+                                if (!mounted || nextSelection == null) {
+                                  return;
+                                }
+                                setState(() {
+                                  _selectedAudienceUserIds
+                                    ..clear()
+                                    ..addAll(nextSelection);
+                                });
+                              },
+                        icon: const Icon(Icons.person_add_alt_1_rounded),
+                        label: const Text('Pilih'),
+                      ),
+                    ],
+                  ),
+                  if (selectedAudienceMembers.isEmpty)
+                    Text(
+                      widget.audienceMembers.isEmpty
+                          ? 'Daftar user belum tersedia untuk dipilih.'
+                          : 'Pilih user yang boleh melihat thread ini.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.inkMuted,
+                      ),
+                    )
+                  else
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: selectedAudienceMembers
+                          .map(
+                            (member) => InputChip(
+                              label: Text(member.name),
+                              onDeleted: () {
+                                setState(() {
+                                  _selectedAudienceUserIds.remove(member.id);
+                                });
+                              },
+                            ),
+                          )
+                          .toList(growable: false),
+                    ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+          TextField(
+            controller: _controller,
+            maxLines: 7,
+            minLines: 5,
+            maxLength: 3000,
+            textCapitalization: TextCapitalization.sentences,
+            keyboardType: TextInputType.multiline,
+            decoration: const InputDecoration(
+              hintText: 'Jangan lupa besok ada MCU, prepare semua ya...',
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Batal'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: canSubmit
+                      ? () {
+                          final content = _controller.text.trim();
+                          if (content.isEmpty) {
+                            return;
+                          }
+
+                          Navigator.of(context).pop(
+                            FeedComposerDraft(
+                              content: content,
+                              visibility: _visibility,
+                              recipientUserIds: _selectedAudienceUserIds.toList(
+                                growable: false,
+                              ),
+                            ),
+                          );
+                        }
+                      : null,
+                  icon: const Icon(Icons.send_rounded),
+                  label: const Text('Posting'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KeyboardAwareSheetFrame extends StatelessWidget {
+  const _KeyboardAwareSheetFrame({
+    required this.child,
+    required this.padding,
+    this.radius = 28,
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final bottomInset = mediaQuery.viewInsets.bottom;
+    final availableHeight =
+        mediaQuery.size.height - mediaQuery.padding.top - bottomInset - 16;
+    final sheetMaxHeight = availableHeight <= 0
+        ? 0.0
+        : availableHeight > 720
+        ? 720.0
+        : availableHeight;
+
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
       padding: EdgeInsets.only(bottom: bottomInset),
       child: SafeArea(
         top: false,
-        child: BrandSurface(
-          radius: 30,
-          backgroundColor: AppColors.surface,
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.borderStrong,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: sheetMaxHeight),
+            child: BrandSurface(
+              radius: radius,
+              backgroundColor: AppColors.surface,
+              padding: padding,
+              child: SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                child: child,
               ),
-              const SizedBox(height: 18),
-              const Text(
-                'Tulis update',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.ink,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _audienceDescription(
-                  _visibility,
-                  userDivisionLabel: widget.userDivisionLabel,
-                ),
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 18),
-              SegmentedButton<FeedVisibility>(
-                segments: [
-                  const ButtonSegment(
-                    value: FeedVisibility.publicScope,
-                    icon: Icon(Icons.public_rounded),
-                    label: Text('Semua'),
-                  ),
-                  ButtonSegment(
-                    value: FeedVisibility.department,
-                    icon: const Icon(Icons.groups_rounded),
-                    label: Text(
-                      widget.userDivisionLabel.trim().isEmpty
-                          ? 'Divisi'
-                          : 'Divisi',
-                    ),
-                  ),
-                  const ButtonSegment(
-                    value: FeedVisibility.selectedUsers,
-                    icon: Icon(Icons.alternate_email_rounded),
-                    label: Text('Tertentu'),
-                  ),
-                  const ButtonSegment(
-                    value: FeedVisibility.privateScope,
-                    icon: Icon(Icons.lock_rounded),
-                    label: Text('Private'),
-                  ),
-                ],
-                selected: <FeedVisibility>{_visibility},
-                onSelectionChanged: (selection) {
-                  setState(() {
-                    _visibility = selection.first;
-                  });
-                },
-              ),
-              if (_visibility == FeedVisibility.selectedUsers) ...[
-                const SizedBox(height: 18),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceAlt,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              'Penerima thread',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.ink,
-                              ),
-                            ),
-                          ),
-                          TextButton.icon(
-                            onPressed: widget.audienceMembers.isEmpty
-                                ? null
-                                : () async {
-                                    final nextSelection =
-                                        await showFeedAudienceSelectionSheet(
-                                          context,
-                                          audienceMembers:
-                                              widget.audienceMembers,
-                                          initialSelectedIds:
-                                              _selectedAudienceUserIds,
-                                        );
-                                    if (!mounted || nextSelection == null) {
-                                      return;
-                                    }
-                                    setState(() {
-                                      _selectedAudienceUserIds
-                                        ..clear()
-                                        ..addAll(nextSelection);
-                                    });
-                                  },
-                            icon: const Icon(Icons.person_add_alt_1_rounded),
-                            label: const Text('Pilih'),
-                          ),
-                        ],
-                      ),
-                      if (selectedAudienceMembers.isEmpty)
-                        Text(
-                          widget.audienceMembers.isEmpty
-                              ? 'Daftar user belum tersedia untuk dipilih.'
-                              : 'Pilih user yang boleh melihat thread ini.',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: AppColors.inkMuted),
-                        )
-                      else
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: selectedAudienceMembers
-                              .map(
-                                (member) => InputChip(
-                                  label: Text(member.name),
-                                  onDeleted: () {
-                                    setState(() {
-                                      _selectedAudienceUserIds.remove(
-                                        member.id,
-                                      );
-                                    });
-                                  },
-                                ),
-                              )
-                              .toList(growable: false),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-              const SizedBox(height: 18),
-              TextField(
-                controller: _controller,
-                maxLines: 7,
-                minLines: 5,
-                maxLength: 3000,
-                decoration: const InputDecoration(
-                  hintText: 'Jangan lupa besok ada MCU, prepare semua ya...',
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Batal'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: canSubmit
-                          ? () {
-                              final content = _controller.text.trim();
-                              if (content.isEmpty) {
-                                return;
-                              }
-
-                              Navigator.of(context).pop(
-                                FeedComposerDraft(
-                                  content: content,
-                                  visibility: _visibility,
-                                  recipientUserIds: _selectedAudienceUserIds
-                                      .toList(growable: false),
-                                ),
-                              );
-                            }
-                          : null,
-                      icon: const Icon(Icons.send_rounded),
-                      label: const Text('Posting'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -639,133 +681,119 @@ class _FeedAudienceSelectionSheetState
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return _KeyboardAwareSheetFrame(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.borderStrong,
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Pilih audience',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _searchController,
+            decoration: const InputDecoration(
+              hintText: 'Cari nama atau divisi',
+              prefixIcon: Icon(Icons.search_rounded),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 320,
+            child: Builder(
+              builder: (context) {
+                final query = _searchController.text.trim().toLowerCase();
+                final filteredMembers = widget.audienceMembers
+                    .where((member) {
+                      if (query.isEmpty) {
+                        return true;
+                      }
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset),
-      child: SafeArea(
-        top: false,
-        child: BrandSurface(
-          radius: 28,
-          backgroundColor: AppColors.surface,
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.borderStrong,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-              const SizedBox(height: 18),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Pilih audience',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.ink,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: _searchController,
-                decoration: const InputDecoration(
-                  hintText: 'Cari nama atau divisi',
-                  prefixIcon: Icon(Icons.search_rounded),
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: 14),
-              SizedBox(
-                height: 320,
-                child: Builder(
-                  builder: (context) {
-                    final query = _searchController.text.trim().toLowerCase();
-                    final filteredMembers = widget.audienceMembers
-                        .where((member) {
-                          if (query.isEmpty) {
-                            return true;
+                      return member.name.toLowerCase().contains(query) ||
+                          (member.department?.toLowerCase().contains(query) ??
+                              false) ||
+                          member.primaryRole.toLowerCase().contains(query);
+                    })
+                    .toList(growable: false);
+
+                if (filteredMembers.isEmpty) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Text('User tidak ditemukan.'),
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  itemCount: filteredMembers.length,
+                  itemBuilder: (context, index) {
+                    final member = filteredMembers[index];
+                    return CheckboxListTile(
+                      value: _selectedIds.contains(member.id),
+                      onChanged: (selected) {
+                        setState(() {
+                          if (selected == true) {
+                            _selectedIds.add(member.id);
+                          } else {
+                            _selectedIds.remove(member.id);
                           }
-
-                          return member.name.toLowerCase().contains(query) ||
-                              (member.department?.toLowerCase().contains(
-                                    query,
-                                  ) ??
-                                  false) ||
-                              member.primaryRole.toLowerCase().contains(query);
-                        })
-                        .toList(growable: false);
-
-                    if (filteredMembers.isEmpty) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 24),
-                          child: Text('User tidak ditemukan.'),
-                        ),
-                      );
-                    }
-
-                    return ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: filteredMembers.length,
-                      itemBuilder: (context, index) {
-                        final member = filteredMembers[index];
-                        return CheckboxListTile(
-                          value: _selectedIds.contains(member.id),
-                          onChanged: (selected) {
-                            setState(() {
-                              if (selected == true) {
-                                _selectedIds.add(member.id);
-                              } else {
-                                _selectedIds.remove(member.id);
-                              }
-                            });
-                          },
-                          title: Text(member.name),
-                          subtitle: Text(
-                            [
-                              member.primaryRole,
-                              if (member.department?.trim().isNotEmpty == true)
-                                member.department!.trim(),
-                            ].join(' • '),
-                          ),
-                          controlAffinity: ListTileControlAffinity.leading,
-                          contentPadding: EdgeInsets.zero,
-                        );
+                        });
                       },
+                      title: Text(member.name),
+                      subtitle: Text(
+                        [
+                          member.primaryRole,
+                          if (member.department?.trim().isNotEmpty == true)
+                            member.department!.trim(),
+                        ].join(' • '),
+                      ),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
                     );
                   },
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Batal'),
                 ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Batal'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: () => Navigator.of(
-                        context,
-                      ).pop(Set<String>.from(_selectedIds)),
-                      child: Text('Simpan (${_selectedIds.length})'),
-                    ),
-                  ),
-                ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: () =>
+                      Navigator.of(context).pop(Set<String>.from(_selectedIds)),
+                  child: Text('Simpan (${_selectedIds.length})'),
+                ),
               ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }
@@ -798,97 +826,89 @@ class _FeedMentionPickerSheetState extends State<_FeedMentionPickerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return _KeyboardAwareSheetFrame(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.borderStrong,
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          const SizedBox(height: 18),
+          TextField(
+            controller: _searchController,
+            decoration: const InputDecoration(
+              hintText: 'Cari user untuk mention',
+              prefixIcon: Icon(Icons.search_rounded),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 320,
+            child: Builder(
+              builder: (context) {
+                final query = _searchController.text.trim().toLowerCase();
+                final filteredMembers = widget.audienceMembers
+                    .where((member) {
+                      if (query.isEmpty) {
+                        return true;
+                      }
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset),
-      child: SafeArea(
-        top: false,
-        child: BrandSurface(
-          radius: 28,
-          backgroundColor: AppColors.surface,
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.borderStrong,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-              const SizedBox(height: 18),
-              TextField(
-                controller: _searchController,
-                decoration: const InputDecoration(
-                  hintText: 'Cari user untuk mention',
-                  prefixIcon: Icon(Icons.search_rounded),
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: 14),
-              SizedBox(
-                height: 320,
-                child: Builder(
-                  builder: (context) {
-                    final query = _searchController.text.trim().toLowerCase();
-                    final filteredMembers = widget.audienceMembers
-                        .where((member) {
-                          if (query.isEmpty) {
-                            return true;
-                          }
+                      return member.name.toLowerCase().contains(query) ||
+                          (member.department?.toLowerCase().contains(query) ??
+                              false) ||
+                          member.primaryRole.toLowerCase().contains(query);
+                    })
+                    .toList(growable: false);
 
-                          return member.name.toLowerCase().contains(query) ||
-                              (member.department?.toLowerCase().contains(
-                                    query,
-                                  ) ??
-                                  false) ||
-                              member.primaryRole.toLowerCase().contains(query);
-                        })
-                        .toList(growable: false);
+                if (filteredMembers.isEmpty) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Text('User tidak ditemukan.'),
+                    ),
+                  );
+                }
 
-                    if (filteredMembers.isEmpty) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 24),
-                          child: Text('User tidak ditemukan.'),
+                return ListView.separated(
+                  itemCount: filteredMembers.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final member = filteredMembers[index];
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundColor: AppColors.surfaceAlt,
+                        child: Text(
+                          member.initials,
+                          style: const TextStyle(
+                            color: AppColors.ink,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
-                      );
-                    }
-
-                    return ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: filteredMembers.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final member = filteredMembers[index];
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: CircleAvatar(
-                            backgroundColor: AppColors.surfaceAlt,
-                            foregroundColor: AppColors.goldDeep,
-                            child: Text(member.initials),
-                          ),
-                          title: Text(member.name),
-                          subtitle: Text(
-                            [
-                              member.primaryRole,
-                              if (member.department?.trim().isNotEmpty == true)
-                                member.department!.trim(),
-                            ].join(' • '),
-                          ),
-                          onTap: () => Navigator.of(context).pop(member),
-                        );
-                      },
+                      ),
+                      title: Text(member.name),
+                      subtitle: Text(
+                        [
+                          member.primaryRole,
+                          if (member.department?.trim().isNotEmpty == true)
+                            member.department!.trim(),
+                        ].join(' • '),
+                      ),
+                      onTap: () => Navigator.of(context).pop(member),
                     );
                   },
-                ),
-              ),
-            ],
+                );
+              },
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

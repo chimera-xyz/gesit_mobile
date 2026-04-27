@@ -72,7 +72,7 @@ class _GesitAppState extends State<GesitApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([_sessionController, _appUpdateController]),
+      animation: _sessionController,
       builder: (context, _) {
         final Widget currentScreen;
         final nextLabel = switch (_sessionController.status) {

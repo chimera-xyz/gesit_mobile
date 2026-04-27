@@ -43,9 +43,8 @@ class FeedController extends ChangeNotifier {
   int _currentPage = 0;
   int _lastPage = 1;
 
-  List<FeedPost> get posts => List<FeedPost>.unmodifiable(_posts);
-  List<FeedAudienceMember> get audienceMembers =>
-      List<FeedAudienceMember>.unmodifiable(_audienceMembers);
+  List<FeedPost> get posts => _posts;
+  List<FeedAudienceMember> get audienceMembers => _audienceMembers;
   bool get loading => _loading;
   bool get loadingMore => _loadingMore;
   bool get loaded => _loaded;
@@ -478,13 +477,15 @@ class FeedController extends ChangeNotifier {
       );
       await _sessionController.syncCookies(payload.cookies);
 
-      _audienceMembers = ((payload.data['users'] as List?) ?? const [])
-          .whereType<Map>()
-          .map(
-            (item) => FeedAudienceMember.fromJson(item.cast<String, dynamic>()),
-          )
-          .where((member) => member.id.trim().isNotEmpty)
-          .toList(growable: false);
+      _audienceMembers = List<FeedAudienceMember>.unmodifiable(
+        ((payload.data['users'] as List?) ?? const [])
+            .whereType<Map>()
+            .map(
+              (item) =>
+                  FeedAudienceMember.fromJson(item.cast<String, dynamic>()),
+            )
+            .where((member) => member.id.trim().isNotEmpty),
+      );
       return audienceMembers;
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
@@ -518,11 +519,12 @@ class FeedController extends ChangeNotifier {
   }
 
   List<FeedPost> _adaptPosts(Object? rawPosts) {
-    return ((rawPosts as List?) ?? const [])
-        .whereType<Map>()
-        .map((item) => FeedPost.fromJson(item.cast<String, dynamic>()))
-        .map(_mergeWithCachedThread)
-        .toList(growable: false);
+    return List<FeedPost>.unmodifiable(
+      ((rawPosts as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => FeedPost.fromJson(item.cast<String, dynamic>()))
+          .map(_mergeWithCachedThread),
+    );
   }
 
   FeedPost _mergeWithCachedThread(FeedPost post) {

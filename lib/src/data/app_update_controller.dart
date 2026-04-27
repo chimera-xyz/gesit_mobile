@@ -21,7 +21,7 @@ class AppUpdateController extends ChangeNotifier {
        _updateService = updateService ?? AppUpdateService(),
        _platformService =
            platformService ?? MethodChannelAppUpdatePlatformService() {
-    _observedBaseUrl = sessionController.apiBaseUrlDraft;
+    _observedBaseUrl = _effectiveSessionBaseUrl;
     sessionController.addListener(_handleSessionControllerChanged);
   }
 
@@ -129,7 +129,9 @@ class AppUpdateController extends ChangeNotifier {
 
     try {
       final baseUrl = AppRuntimeConfig.normalizePersistedBaseUrl(
-        baseUrlOverride ?? await SessionStore.readApiBaseUrl(),
+        baseUrlOverride ??
+            _sessionController.session?.apiBaseUrl ??
+            await SessionStore.readApiBaseUrl(),
       );
       _observedBaseUrl = baseUrl;
 
@@ -259,9 +261,7 @@ class AppUpdateController extends ChangeNotifier {
   }
 
   void _handleSessionControllerChanged() {
-    final normalized = AppRuntimeConfig.normalizeBaseUrl(
-      _sessionController.apiBaseUrlDraft,
-    );
+    final normalized = _effectiveSessionBaseUrl;
     if (normalized == _observedBaseUrl) {
       return;
     }
@@ -279,6 +279,11 @@ class AppUpdateController extends ChangeNotifier {
       unawaited(checkForUpdates(baseUrlOverride: normalized));
     });
   }
+
+  String get _effectiveSessionBaseUrl => AppRuntimeConfig.normalizeBaseUrl(
+    _sessionController.session?.apiBaseUrl ??
+        _sessionController.apiBaseUrlDraft,
+  );
 
   bool get _supportsSelfHostedAndroidUpdate {
     if (kIsWeb) {

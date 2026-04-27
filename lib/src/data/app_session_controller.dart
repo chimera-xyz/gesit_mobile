@@ -291,12 +291,21 @@ class AppSessionController extends ChangeNotifier {
   }
 
   Future<void> syncSession(AppSession session, {bool notify = true}) async {
-    _session = session;
+    final normalizedBaseUrl = AppRuntimeConfig.normalizeBaseUrl(
+      session.apiBaseUrl,
+    );
+    final normalizedSession = session.apiBaseUrl == normalizedBaseUrl
+        ? session
+        : session.copyWith(apiBaseUrl: normalizedBaseUrl);
+
+    _session = normalizedSession;
     _status = AppSessionStatus.authenticated;
     _errorMessage = null;
+    _apiBaseUrlDraft = normalizedBaseUrl;
+    await SessionStore.writeApiBaseUrl(normalizedBaseUrl);
 
-    if (session.rememberSession) {
-      await SessionStore.writeSession(session);
+    if (normalizedSession.rememberSession) {
+      await SessionStore.writeSession(normalizedSession);
     }
 
     if (notify) {

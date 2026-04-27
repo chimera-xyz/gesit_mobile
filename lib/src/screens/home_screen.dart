@@ -60,29 +60,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late DateTime _now;
-  Timer? _clockTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _now = DateTime.now();
-    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _now = DateTime.now();
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _clockTimer?.cancel();
-    super.dispose();
-  }
-
   Future<void> _openComposer() async {
     try {
       await widget.feedController.ensureAudienceMembersLoaded();
@@ -179,8 +156,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final today = DateFormat('EEEE, d MMM yyyy', 'id_ID').format(_now);
-    final currentTime = DateFormat('HH:mm:ss', 'id_ID').format(_now);
     final firstName = widget.userName
         .trim()
         .split(RegExp(r'\s+'))
@@ -320,13 +295,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Wrap(
                     spacing: 10,
                     runSpacing: 10,
-                    children: [
-                      StatusChip(
-                        label: '$today • $currentTime',
-                        color: AppColors.goldDeep,
-                        icon: Icons.calendar_today_rounded,
-                      ),
-                    ],
+                    children: const [_ClockStatusChip()],
                   ),
                   const SizedBox(height: 18),
                   Wrap(
@@ -557,6 +526,46 @@ class _NotificationButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ClockStatusChip extends StatefulWidget {
+  const _ClockStatusChip();
+
+  @override
+  State<_ClockStatusChip> createState() => _ClockStatusChipState();
+}
+
+class _ClockStatusChipState extends State<_ClockStatusChip> {
+  final DateFormat _dateFormatter = DateFormat('EEEE, d MMM yyyy', 'id_ID');
+  final DateFormat _timeFormatter = DateFormat('HH:mm:ss', 'id_ID');
+  late DateTime _now;
+  Timer? _clockTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _now = DateTime.now();
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() => _now = DateTime.now());
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StatusChip(
+      label: '${_dateFormatter.format(_now)} • ${_timeFormatter.format(_now)}',
+      color: AppColors.goldDeep,
+      icon: Icons.calendar_today_rounded,
     );
   }
 }

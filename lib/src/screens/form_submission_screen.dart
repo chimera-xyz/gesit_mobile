@@ -84,8 +84,10 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
     final hasVerifiedDescription =
         widget.form.descriptionVerified &&
         widget.form.description.trim().isNotEmpty;
+    final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       backgroundColor: Colors.transparent,
       body: GesitBackground(
         child: GestureDetector(
@@ -94,7 +96,13 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
           child: SafeArea(
             child: SingleChildScrollView(
               physics: const ClampingScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 148),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.fromLTRB(
+                20,
+                20,
+                20,
+                keyboardVisible ? 32 : 148,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -290,40 +298,46 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          decoration: BoxDecoration(
-            color: AppColors.surface.withValues(alpha: 0.98),
-            border: const Border(top: BorderSide(color: AppColors.border)),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x12291C09),
-                blurRadius: 18,
-                offset: Offset(0, -8),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Batal'),
+      bottomNavigationBar: keyboardVisible
+          ? null
+          : SafeArea(
+              top: false,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                decoration: BoxDecoration(
+                  color: AppColors.surface.withValues(alpha: 0.98),
+                  border: const Border(
+                    top: BorderSide(color: AppColors.border),
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x12291C09),
+                      blurRadius: 18,
+                      offset: Offset(0, -8),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Batal'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _submitting ? null : _submit,
+                        child: Text(
+                          _submitting ? 'Mengirim...' : 'Kirim Pengajuan',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  onPressed: _submitting ? null : _submit,
-                  child: Text(_submitting ? 'Mengirim...' : 'Kirim Pengajuan'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+            ),
     );
   }
 
@@ -336,6 +350,9 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
           controller: _controllers[field.id],
           keyboardType: _keyboardType(field.type),
           textInputAction: TextInputAction.next,
+          textCapitalization: field.type == FormFieldType.email
+              ? TextCapitalization.none
+              : TextCapitalization.sentences,
           readOnly: field.readOnly,
           decoration: InputDecoration(hintText: field.placeholder),
         );
@@ -346,6 +363,7 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
           minLines: 4,
           keyboardType: TextInputType.multiline,
           textInputAction: TextInputAction.newline,
+          textCapitalization: TextCapitalization.sentences,
           readOnly: field.readOnly,
           decoration: InputDecoration(
             hintText: field.placeholder,
@@ -662,11 +680,12 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
         const SnackBar(content: Text('Pengajuan berhasil dikirim ke server.')),
       );
 
-      pushBrandedRoute(
-        context,
-        SubmissionDetailScreen(
-          task: createdTask,
-          controller: widget.controller,
+      await Navigator.of(context).pushReplacement<void, void>(
+        BrandedPageRoute(
+          builder: (_) => SubmissionDetailScreen(
+            task: createdTask,
+            controller: widget.controller,
+          ),
         ),
       );
     } on GesitApiException catch (error) {

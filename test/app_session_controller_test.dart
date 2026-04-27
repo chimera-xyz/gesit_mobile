@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gesit_app/src/config/app_runtime_config.dart';
 import 'package:gesit_app/src/data/app_session_controller.dart';
 import 'package:gesit_app/src/data/gesit_api_client.dart';
 import 'package:gesit_app/src/data/session_store.dart';
@@ -13,7 +14,7 @@ import 'package:shared_preferences_platform_interface/shared_preferences_async_p
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  const migratedApiBaseUrl = 'http://192.168.1.24:8000';
+  final migratedApiBaseUrl = AppRuntimeConfig.defaultApiBaseUrl;
 
   group('AppSessionController', () {
     setUp(() {

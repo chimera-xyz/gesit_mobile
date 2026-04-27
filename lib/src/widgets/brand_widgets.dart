@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/app_models.dart';
 import '../theme/app_theme.dart';
 
-const double kBottomBarInset = 112;
+const double kBottomBarInset = 32;
 
 class GesitBackground extends StatelessWidget {
   const GesitBackground({super.key, required this.child});

@@ -42,11 +42,15 @@ class _GesitShellState extends State<GesitShell>
   AppShellModule _currentModule = AppShellModule.home;
   AppShellModule _previousModule = AppShellModule.home;
   bool _isTransitioning = false;
+  final Set<AppShellModule> _visitedModules = <AppShellModule>{
+    AppShellModule.home,
+  };
   late final AnimationController _tabTransitionController;
   late final NotificationCenterController _notificationController;
   late final WorkspaceDataController _workspaceController;
   late final ChatWorkspaceController _chatController;
   late final FeedController _feedController;
+  late final Listenable _homeTabListenable;
   StreamSubscription<AppNotification>? _notificationOpenRequestSubscription;
 
   @override
@@ -70,6 +74,11 @@ class _GesitShellState extends State<GesitShell>
     _feedController = FeedController(
       sessionController: widget.sessionController,
     );
+    _homeTabListenable = Listenable.merge([
+      _notificationController,
+      _workspaceController,
+      _feedController,
+    ]);
     _syncModuleControllers(_currentModule);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_primeStartupControllers());
@@ -131,6 +140,7 @@ class _GesitShellState extends State<GesitShell>
     setState(() {
       _previousModule = _currentModule;
       _currentModule = module;
+      _visitedModules.add(module);
       _isTransitioning = true;
     });
 
@@ -621,297 +631,407 @@ class _GesitShellState extends State<GesitShell>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([
-        _notificationController,
-        _chatController,
-        _workspaceController,
-        _feedController,
-      ]),
-      builder: (context, _) {
-        final session = _session;
-        final modules = session.shellModules;
-        final resolvedCurrentModule = modules.contains(_currentModule)
-            ? _currentModule
-            : modules.first;
-        final resolvedPreviousModule = modules.contains(_previousModule)
-            ? _previousModule
-            : modules.first;
-        final items = modules
-            .map(
-              (module) => _NavItem(
-                module: module,
-                label: module.label,
-                icon: module.icon,
-                badgeCount: module == AppShellModule.chat
-                    ? _chatController.unreadConversationCount
-                    : 0,
-              ),
-            )
-            .toList(growable: false);
-        final screens = <AppShellModule, Widget>{
-          AppShellModule.home: HomeScreen(
-            key: const PageStorageKey('home-tab'),
-            userName: session.user.name,
-            userInitials: session.user.initials,
-            userRoleLabel: session.user.primaryRole,
-            userDivisionLabel: session.user.divisionLabel,
-            activeFormCount: _workspaceController.activeFormCount,
-            pendingActionCount: _workspaceController.pendingActionCount,
-            canOpenTasks: session.canAccessTasks,
-            canOpenForms: session.canAccessForms,
-            canOpenHelpdesk: session.canAccessHelpdesk,
-            canOpenChat: session.canAccessChat,
-            onOpenTasks: () => _selectModule(AppShellModule.tasks),
-            onOpenForms: () => _selectModule(AppShellModule.forms),
-            onOpenChat: () => _selectModule(AppShellModule.chat),
-            onOpenAiAssist: _openAiAssist,
-            onOpenHelpdesk: _openHelpdesk,
-            onOpenNotifications: _openNotifications,
-            unreadNotificationCount: _notificationController.unreadCount,
-            feedController: _feedController,
-            onOpenFeedThread: _openFeedThread,
+    final session = _session;
+    final modules = session.shellModules;
+    final resolvedCurrentModule = modules.contains(_currentModule)
+        ? _currentModule
+        : modules.first;
+    final resolvedPreviousModule = modules.contains(_previousModule)
+        ? _previousModule
+        : modules.first;
+    final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
+
+    return Scaffold(
+      resizeToAvoidBottomInset: true,
+      extendBody: false,
+      backgroundColor: Colors.transparent,
+      floatingActionButton: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 180),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.94, end: 1).animate(animation),
+            child: child,
           ),
-          if (session.canAccessTasks)
-            AppShellModule.tasks: TasksScreen(
-              key: const PageStorageKey('tasks-tab'),
-              controller: _workspaceController,
-              onOpenTask: _openSubmission,
+        ),
+        child: resolvedCurrentModule == AppShellModule.chat
+            ? FloatingActionButton(
+                key: const ValueKey('chat-fab'),
+                onPressed: _openChatComposer,
+                backgroundColor: AppColors.goldDeep,
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.edit_rounded),
+              )
+            : const SizedBox.shrink(key: ValueKey('empty-fab')),
+      ),
+      body: Stack(
+        children: [
+          GesitBackground(
+            child: SafeArea(
+              bottom: false,
+              child: AnimatedBuilder(
+                animation: _tabTransitionController,
+                builder: (context, _) {
+                  final progress = _isTransitioning
+                      ? Curves.easeOutCubic.transform(
+                          _tabTransitionController.value,
+                        )
+                      : 1.0;
+                  final bodyModules = modules
+                      .where(
+                        (module) =>
+                            module == resolvedCurrentModule ||
+                            (_isTransitioning &&
+                                module == resolvedPreviousModule) ||
+                            _visitedModules.contains(module),
+                      )
+                      .toList(growable: false);
+
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      for (final module in bodyModules)
+                        _TabBodyLayer(
+                          key: ValueKey('tab-layer-${module.name}'),
+                          isActive: module == resolvedCurrentModule,
+                          isOutgoing:
+                              _isTransitioning &&
+                              module == resolvedPreviousModule,
+                          progress: progress,
+                          child: _buildModuleScreen(module, session),
+                        ),
+                    ],
+                  );
+                },
+              ),
             ),
-          if (session.canAccessForms)
-            AppShellModule.forms: FormsScreen(
-              key: PageStorageKey('forms-tab'),
-              controller: _workspaceController,
+          ),
+          _NotificationBannerLayer(
+            controller: _notificationController,
+            onOpenRequest: _handleNotificationOpenRequest,
+          ),
+          _IncomingCallLayer(
+            controller: _chatController,
+            onAccept: _acceptIncomingCall,
+          ),
+        ],
+      ),
+      bottomNavigationBar: keyboardVisible
+          ? null
+          : AnimatedBuilder(
+              animation: _chatController,
+              builder: (context, _) {
+                final items = modules
+                    .map(
+                      (module) => _NavItem(
+                        module: module,
+                        label: module.label,
+                        icon: module.icon,
+                        badgeCount: module == AppShellModule.chat
+                            ? _chatController.unreadConversationCount
+                            : 0,
+                      ),
+                    )
+                    .toList(growable: false);
+
+                return _ShellBottomNavigationBar(
+                  items: items,
+                  currentModule: resolvedCurrentModule,
+                  onSelect: _selectModule,
+                );
+              },
             ),
-          if (session.canAccessChat)
-            AppShellModule.chat: ChatHubScreen(
-              key: const PageStorageKey('chat-tab'),
-              controller: _chatController,
-              onOpenConversation: _openConversation,
-            ),
-          AppShellModule.profile: ProfileScreen(
-            key: const PageStorageKey('profile-tab'),
-            userName: session.user.name,
-            userInitials: session.user.initials,
-            userRoleLabel: session.user.primaryRole,
-            userDivisionLabel: session.user.divisionLabel,
-            canOpenTasks: session.canAccessTasks,
-            canOpenKnowledgeHub: session.canAccessKnowledgeHub,
-            canOpenHelpdesk: session.canAccessHelpdesk,
-            onOpenTasks: () => _selectModule(AppShellModule.tasks),
-            onOpenKnowledgeHub: _openKnowledgeHub,
-            onOpenHelpdesk: _openHelpdesk,
-            onLogout: () {
-              widget.sessionController.signOut();
+    );
+  }
+
+  Widget _buildModuleScreen(AppShellModule module, AppSession session) {
+    return switch (module) {
+      AppShellModule.home => AnimatedBuilder(
+        animation: _homeTabListenable,
+        builder: (context, _) => HomeScreen(
+          key: const PageStorageKey('home-tab'),
+          userName: session.user.name,
+          userInitials: session.user.initials,
+          userRoleLabel: session.user.primaryRole,
+          userDivisionLabel: session.user.divisionLabel,
+          activeFormCount: _workspaceController.activeFormCount,
+          pendingActionCount: _workspaceController.pendingActionCount,
+          canOpenTasks: session.canAccessTasks,
+          canOpenForms: session.canAccessForms,
+          canOpenHelpdesk: session.canAccessHelpdesk,
+          canOpenChat: session.canAccessChat,
+          onOpenTasks: () => _selectModule(AppShellModule.tasks),
+          onOpenForms: () => _selectModule(AppShellModule.forms),
+          onOpenChat: () => _selectModule(AppShellModule.chat),
+          onOpenAiAssist: _openAiAssist,
+          onOpenHelpdesk: _openHelpdesk,
+          onOpenNotifications: _openNotifications,
+          unreadNotificationCount: _notificationController.unreadCount,
+          feedController: _feedController,
+          onOpenFeedThread: _openFeedThread,
+        ),
+      ),
+      AppShellModule.tasks when session.canAccessTasks => TasksScreen(
+        key: const PageStorageKey('tasks-tab'),
+        controller: _workspaceController,
+        onOpenTask: _openSubmission,
+      ),
+      AppShellModule.forms when session.canAccessForms => FormsScreen(
+        key: const PageStorageKey('forms-tab'),
+        controller: _workspaceController,
+      ),
+      AppShellModule.chat when session.canAccessChat => ChatHubScreen(
+        key: const PageStorageKey('chat-tab'),
+        controller: _chatController,
+        onOpenConversation: _openConversation,
+      ),
+      AppShellModule.profile => ProfileScreen(
+        key: const PageStorageKey('profile-tab'),
+        userName: session.user.name,
+        userInitials: session.user.initials,
+        userRoleLabel: session.user.primaryRole,
+        userDivisionLabel: session.user.divisionLabel,
+        canOpenTasks: session.canAccessTasks,
+        canOpenKnowledgeHub: session.canAccessKnowledgeHub,
+        canOpenHelpdesk: session.canAccessHelpdesk,
+        onOpenTasks: () => _selectModule(AppShellModule.tasks),
+        onOpenKnowledgeHub: _openKnowledgeHub,
+        onOpenHelpdesk: _openHelpdesk,
+        onLogout: widget.sessionController.signOut,
+      ),
+      _ => const SizedBox.shrink(),
+    };
+  }
+
+  Future<void> _acceptIncomingCall(ChatCallSession incomingCall) async {
+    await _chatController.acceptActiveCall();
+    if (!mounted) {
+      return;
+    }
+
+    pushBrandedRoute(
+      context,
+      ChatCallScreen(
+        controller: _chatController,
+        conversationId: incomingCall.conversationId,
+      ),
+    );
+  }
+}
+
+class _NotificationBannerLayer extends StatelessWidget {
+  const _NotificationBannerLayer({
+    required this.controller,
+    required this.onOpenRequest,
+  });
+
+  final NotificationCenterController controller;
+  final Future<void> Function(AppNotification notification) onOpenRequest;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: 0,
+      left: 20,
+      right: 20,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: AnimatedBuilder(
+            animation: controller,
+            builder: (context, _) {
+              final activeBanner = controller.activeBanner;
+
+              return AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, -0.12),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  ),
+                ),
+                child: activeBanner == null
+                    ? const SizedBox.shrink(
+                        key: ValueKey('notification-banner-empty'),
+                      )
+                    : NotificationHeadsUpBanner(
+                        key: ValueKey(activeBanner.id),
+                        notification: activeBanner,
+                        onTap: () => unawaited(onOpenRequest(activeBanner)),
+                        onDismiss: controller.dismissActiveBanner,
+                      ),
+              );
             },
           ),
-        };
-        final activeBanner = _notificationController.activeBanner;
-        final incomingCall = _chatController.hasIncomingCall
-            ? _chatController.activeCall
+        ),
+      ),
+    );
+  }
+}
+
+class _IncomingCallLayer extends StatelessWidget {
+  const _IncomingCallLayer({required this.controller, required this.onAccept});
+
+  final ChatWorkspaceController controller;
+  final Future<void> Function(ChatCallSession incomingCall) onAccept;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final incomingCall = controller.hasIncomingCall
+            ? controller.activeCall
             : null;
+        if (incomingCall == null) {
+          return const SizedBox.shrink();
+        }
 
-        return Scaffold(
-          extendBody: true,
-          backgroundColor: Colors.transparent,
-          floatingActionButton: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 180),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            transitionBuilder: (child, animation) => FadeTransition(
-              opacity: animation,
-              child: ScaleTransition(
-                scale: Tween<double>(begin: 0.94, end: 1).animate(animation),
-                child: child,
-              ),
-            ),
-            child: resolvedCurrentModule == AppShellModule.chat
-                ? FloatingActionButton(
-                    key: const ValueKey('chat-fab'),
-                    onPressed: _openChatComposer,
-                    backgroundColor: AppColors.goldDeep,
-                    foregroundColor: Colors.white,
-                    child: const Icon(Icons.edit_rounded),
-                  )
-                : const SizedBox.shrink(key: ValueKey('empty-fab')),
-          ),
-          body: Stack(
-            children: [
-              GesitBackground(
-                child: SafeArea(
-                  bottom: false,
-                  child: AnimatedBuilder(
-                    animation: _tabTransitionController,
-                    builder: (context, _) {
-                      final progress = _isTransitioning
-                          ? Curves.easeOutCubic.transform(
-                              _tabTransitionController.value,
-                            )
-                          : 1.0;
-
-                      return Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          for (final module in modules)
-                            _TabBodyLayer(
-                              isActive: module == resolvedCurrentModule,
-                              isOutgoing:
-                                  _isTransitioning &&
-                                  module == resolvedPreviousModule,
-                              progress: progress,
-                              child: screens[module] ?? const SizedBox.shrink(),
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 0,
-                left: 20,
-                right: 20,
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 16),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      transitionBuilder: (child, animation) => FadeTransition(
-                        opacity: animation,
-                        child: SlideTransition(
-                          position: Tween<Offset>(
-                            begin: const Offset(0, -0.12),
-                            end: Offset.zero,
-                          ).animate(animation),
-                          child: child,
-                        ),
-                      ),
-                      child: activeBanner == null
-                          ? const SizedBox.shrink(
-                              key: ValueKey('notification-banner-empty'),
-                            )
-                          : NotificationHeadsUpBanner(
-                              key: ValueKey(activeBanner.id),
-                              notification: activeBanner,
-                              onTap: () => unawaited(
-                                _handleNotificationOpenRequest(activeBanner),
-                              ),
-                              onDismiss:
-                                  _notificationController.dismissActiveBanner,
-                            ),
-                    ),
-                  ),
-                ),
-              ),
-              if (incomingCall != null)
-                Positioned(
-                  left: 16,
-                  right: 16,
-                  bottom: 120,
-                  child: SafeArea(
-                    top: false,
-                    child: _IncomingCallCard(
-                      session: incomingCall,
-                      accentColor:
-                          _chatController
-                              .conversationById(incomingCall.conversationId)
-                              ?.accentColor ??
-                          AppColors.goldDeep,
-                      onDecline: () =>
-                          unawaited(_chatController.declineActiveCall()),
-                      onAccept: () async {
-                        await _chatController.acceptActiveCall();
-                        if (!context.mounted) {
-                          return;
-                        }
-                        pushBrandedRoute(
-                          context,
-                          ChatCallScreen(
-                            controller: _chatController,
-                            conversationId: incomingCall.conversationId,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          bottomNavigationBar: SafeArea(
+        return Positioned(
+          left: 16,
+          right: 16,
+          bottom: 16,
+          child: SafeArea(
             top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: AppColors.surface.withValues(alpha: 0.96),
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: AppColors.border),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x1F291C09),
-                      blurRadius: 36,
-                      offset: Offset(0, 16),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    for (var index = 0; index < items.length; index++)
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => _selectModule(items[index].module),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 160),
-                            curve: Curves.easeOutCubic,
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                              color:
-                                  resolvedCurrentModule == items[index].module
-                                  ? AppColors.goldSoft
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _NavIcon(
-                                  icon: items[index].icon,
-                                  badgeCount: items[index].badgeCount,
-                                  color:
-                                      resolvedCurrentModule ==
-                                          items[index].module
-                                      ? AppColors.goldDeep
-                                      : AppColors.inkMuted,
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  items[index].label,
-                                  style: Theme.of(context).textTheme.labelSmall
-                                      ?.copyWith(
-                                        color:
-                                            resolvedCurrentModule ==
-                                                items[index].module
-                                            ? AppColors.goldDeep
-                                            : AppColors.inkMuted,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+            child: _IncomingCallCard(
+              session: incomingCall,
+              accentColor:
+                  controller
+                      .conversationById(incomingCall.conversationId)
+                      ?.accentColor ??
+                  AppColors.goldDeep,
+              onDecline: () => unawaited(controller.declineActiveCall()),
+              onAccept: () => unawaited(onAccept(incomingCall)),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+class _ShellBottomNavigationBar extends StatelessWidget {
+  const _ShellBottomNavigationBar({
+    required this.items,
+    required this.currentModule,
+    required this.onSelect,
+  });
+
+  final List<_NavItem> items;
+  final AppShellModule currentModule;
+  final ValueChanged<AppShellModule> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Material(
+      color: AppColors.canvasTop,
+      child: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppColors.surface.withValues(alpha: 0.98),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: AppColors.border),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x1A291C09),
+                blurRadius: 24,
+                offset: Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Row(
+              children: [
+                for (final item in items)
+                  Expanded(
+                    child: _ShellNavigationItem(
+                      item: item,
+                      selected: item.module == currentModule,
+                      textTheme: textTheme,
+                      onTap: () => onSelect(item.module),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShellNavigationItem extends StatelessWidget {
+  const _ShellNavigationItem({
+    required this.item,
+    required this.selected,
+    required this.textTheme,
+    required this.onTap,
+  });
+
+  final _NavItem item;
+  final bool selected;
+  final TextTheme textTheme;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? AppColors.goldDeep : AppColors.inkMuted;
+
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: item.label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          constraints: const BoxConstraints(minHeight: 58),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.goldSoft.withValues(alpha: 0.86) : null,
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _NavIcon(
+                icon: item.icon,
+                badgeCount: item.badgeCount,
+                color: color,
+              ),
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  item.label,
+                  maxLines: 1,
+                  style: textTheme.labelSmall?.copyWith(
+                    color: color,
+                    fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1234,6 +1354,7 @@ class _IncomingCallCard extends StatelessWidget {
 
 class _TabBodyLayer extends StatelessWidget {
   const _TabBodyLayer({
+    super.key,
     required this.isActive,
     required this.isOutgoing,
     required this.progress,
