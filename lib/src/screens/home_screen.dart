@@ -282,56 +282,13 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 18),
           RevealUp(
             index: 1,
-            child: BrandSurface(
-              padding: const EdgeInsets.all(22),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Selamat datang, $firstName.',
-                    style: textTheme.headlineMedium?.copyWith(fontSize: 30),
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: const [_ClockStatusChip()],
-                  ),
-                  const SizedBox(height: 18),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      if (widget.canOpenTasks)
-                        SizedBox(
-                          width: 164,
-                          child: FilledButton.icon(
-                            onPressed: widget.onOpenTasks,
-                            icon: const Icon(Icons.fact_check_rounded),
-                            label: const Text('Tasks'),
-                          ),
-                        ),
-                      if (widget.canOpenForms)
-                        SizedBox(
-                          width: 164,
-                          child: OutlinedButton.icon(
-                            onPressed: widget.onOpenForms,
-                            icon: const Icon(Icons.description_rounded),
-                            label: const Text('Forms'),
-                          ),
-                        ),
-                      SizedBox(
-                        width: 164,
-                        child: OutlinedButton.icon(
-                          onPressed: widget.onOpenAiAssist,
-                          icon: const Icon(Icons.auto_awesome_rounded),
-                          label: const Text('AI Assist'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+            child: _WelcomePanel(
+              firstName: firstName,
+              canOpenTasks: widget.canOpenTasks,
+              canOpenForms: widget.canOpenForms,
+              onOpenTasks: widget.onOpenTasks,
+              onOpenForms: widget.onOpenForms,
+              onOpenAiAssist: widget.onOpenAiAssist,
             ),
           ),
           const SizedBox(height: 24),
@@ -463,6 +420,216 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+class _WelcomePanel extends StatelessWidget {
+  const _WelcomePanel({
+    required this.firstName,
+    required this.canOpenTasks,
+    required this.canOpenForms,
+    required this.onOpenTasks,
+    required this.onOpenForms,
+    required this.onOpenAiAssist,
+  });
+
+  final String firstName;
+  final bool canOpenTasks;
+  final bool canOpenForms;
+  final VoidCallback onOpenTasks;
+  final VoidCallback onOpenForms;
+  final VoidCallback onOpenAiAssist;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final actions = <_WelcomeAction>[
+      if (canOpenTasks)
+        _WelcomeAction(
+          title: 'Tasks',
+          icon: Icons.fact_check_rounded,
+          accentColor: AppColors.goldDeep,
+          emphasized: true,
+          onTap: onOpenTasks,
+        ),
+      if (canOpenForms)
+        _WelcomeAction(
+          title: 'Forms',
+          icon: Icons.description_rounded,
+          accentColor: AppColors.blue,
+          emphasized: !canOpenTasks,
+          onTap: onOpenForms,
+        ),
+      _WelcomeAction(
+        title: 'AI Assist',
+        icon: Icons.auto_awesome_rounded,
+        accentColor: AppColors.emerald,
+        emphasized: !canOpenTasks && !canOpenForms,
+        onTap: onOpenAiAssist,
+      ),
+    ];
+
+    return BrandSurface(
+      radius: 22,
+      padding: const EdgeInsets.all(18),
+      backgroundColor: AppColors.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Welcome, $firstName.',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.headlineMedium?.copyWith(
+                        fontSize: 25,
+                        height: 1.12,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Workspace internal',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodyMedium?.copyWith(
+                        color: AppColors.inkSoft,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceAlt,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: const Icon(
+                  Icons.grid_view_rounded,
+                  color: AppColors.goldDeep,
+                  size: 20,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const _ClockStatusChip(),
+          const SizedBox(height: 14),
+          _WelcomeActionGrid(actions: actions),
+        ],
+      ),
+    );
+  }
+}
+
+class _WelcomeAction {
+  const _WelcomeAction({
+    required this.title,
+    required this.icon,
+    required this.accentColor,
+    required this.emphasized,
+    required this.onTap,
+  });
+
+  final String title;
+  final IconData icon;
+  final Color accentColor;
+  final bool emphasized;
+  final VoidCallback onTap;
+}
+
+class _WelcomeActionGrid extends StatelessWidget {
+  const _WelcomeActionGrid({required this.actions});
+
+  final List<_WelcomeAction> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Ink(
+        height: 92,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceAlt,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            for (var index = 0; index < actions.length; index++) ...[
+              Expanded(child: _WelcomeActionButton(action: actions[index])),
+              if (index != actions.length - 1)
+                const SizedBox(
+                  height: 48,
+                  child: VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: AppColors.border,
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WelcomeActionButton extends StatelessWidget {
+  const _WelcomeActionButton({required this.action});
+
+  final _WelcomeAction action;
+
+  @override
+  Widget build(BuildContext context) {
+    final iconBackgroundColor = action.emphasized
+        ? AppColors.goldDeep
+        : action.accentColor.withValues(alpha: 0.1);
+    final iconColor = action.emphasized ? Colors.white : action.accentColor;
+
+    return InkWell(
+      onTap: action.onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: iconBackgroundColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(action.icon, size: 18, color: iconColor),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              action.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: AppColors.ink,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _NotificationButton extends StatelessWidget {
   const _NotificationButton({required this.unreadCount, required this.onTap});
 
@@ -562,10 +729,45 @@ class _ClockStatusChipState extends State<_ClockStatusChip> {
 
   @override
   Widget build(BuildContext context) {
-    return StatusChip(
-      label: '${_dateFormatter.format(_now)} • ${_timeFormatter.format(_now)}',
-      color: AppColors.goldDeep,
-      icon: Icons.calendar_today_rounded,
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: AppColors.goldSoft.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: const Icon(
+              Icons.calendar_today_rounded,
+              size: 15,
+              color: AppColors.goldDeep,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '${_dateFormatter.format(_now)} • ${_timeFormatter.format(_now)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: textTheme.bodyMedium?.copyWith(
+                color: AppColors.ink,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
