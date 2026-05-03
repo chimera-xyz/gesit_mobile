@@ -16,6 +16,7 @@ class HomeScreen extends StatefulWidget {
     super.key,
     required this.userName,
     required this.userInitials,
+    this.userProfilePhotoUrl,
     required this.userRoleLabel,
     required this.userDivisionLabel,
     required this.activeFormCount,
@@ -30,13 +31,17 @@ class HomeScreen extends StatefulWidget {
     required this.onOpenAiAssist,
     required this.onOpenHelpdesk,
     required this.onOpenNotifications,
+    required this.onOpenProfileDetails,
+    required this.onToggleLauncher,
     required this.unreadNotificationCount,
     required this.feedController,
     required this.onOpenFeedThread,
+    required this.onOpenAllFeed,
   });
 
   final String userName;
   final String userInitials;
+  final String? userProfilePhotoUrl;
   final String userRoleLabel;
   final String userDivisionLabel;
   final int activeFormCount;
@@ -51,9 +56,12 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback onOpenAiAssist;
   final VoidCallback onOpenHelpdesk;
   final VoidCallback onOpenNotifications;
+  final VoidCallback onOpenProfileDetails;
+  final VoidCallback onToggleLauncher;
   final int unreadNotificationCount;
   final FeedController feedController;
   final ValueChanged<FeedPost> onOpenFeedThread;
+  final VoidCallback onOpenAllFeed;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -208,7 +216,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
     final visibleStatusCards = statusCards.take(3).toList(growable: false);
     final feedPosts = widget.feedController.posts
-        .take(4)
+        .take(2)
         .toList(growable: false);
 
     return SingleChildScrollView(
@@ -230,50 +238,46 @@ class _HomeScreenState extends State<HomeScreen> {
                   onTap: widget.onOpenNotifications,
                 ),
                 const SizedBox(width: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 9,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: widget.onOpenProfileDetails,
                     borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [AppColors.goldDeep, AppColors.gold],
-                          ),
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          widget.userInitials,
-                          style: textTheme.titleMedium?.copyWith(
-                            color: Colors.white,
-                          ),
-                        ),
+                    child: Ink(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 9,
                       ),
-                      const SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(firstName, style: textTheme.labelLarge),
-                          Text(
-                            widget.userRoleLabel,
-                            style: textTheme.bodySmall?.copyWith(
-                              color: AppColors.inkSoft,
-                            ),
+                          UserProfileAvatar(
+                            initials: widget.userInitials,
+                            photoUrl: widget.userProfilePhotoUrl,
+                            size: 34,
+                            radius: 13,
+                          ),
+                          const SizedBox(width: 10),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(firstName, style: textTheme.labelLarge),
+                              Text(
+                                widget.userRoleLabel,
+                                style: textTheme.bodySmall?.copyWith(
+                                  color: AppColors.inkSoft,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ],
@@ -289,6 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onOpenTasks: widget.onOpenTasks,
               onOpenForms: widget.onOpenForms,
               onOpenAiAssist: widget.onOpenAiAssist,
+              onToggleLauncher: widget.onToggleLauncher,
             ),
           ),
           const SizedBox(height: 24),
@@ -396,22 +401,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ],
-                if (widget.feedController.hasMore) ...[
-                  const SizedBox(height: 14),
-                  OutlinedButton.icon(
-                    onPressed: widget.feedController.loadingMore
-                        ? null
-                        : () => unawaited(widget.feedController.loadMore()),
-                    icon: widget.feedController.loadingMore
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.expand_more_rounded),
-                    label: const Text('Muat lagi'),
-                  ),
-                ],
+                const SizedBox(height: 14),
+                OutlinedButton.icon(
+                  onPressed: widget.onOpenAllFeed,
+                  icon: const Icon(Icons.dynamic_feed_rounded),
+                  label: const Text('Lihat semua feed'),
+                ),
               ],
             ),
         ],
@@ -428,6 +423,7 @@ class _WelcomePanel extends StatelessWidget {
     required this.onOpenTasks,
     required this.onOpenForms,
     required this.onOpenAiAssist,
+    required this.onToggleLauncher,
   });
 
   final String firstName;
@@ -436,6 +432,7 @@ class _WelcomePanel extends StatelessWidget {
   final VoidCallback onOpenTasks;
   final VoidCallback onOpenForms;
   final VoidCallback onOpenAiAssist;
+  final VoidCallback onToggleLauncher;
 
   @override
   Widget build(BuildContext context) {
@@ -503,18 +500,29 @@ class _WelcomePanel extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 14),
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceAlt,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: const Icon(
-                  Icons.grid_view_rounded,
-                  color: AppColors.goldDeep,
-                  size: 20,
+              Semantics(
+                button: true,
+                label: 'Buka menu navigasi',
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onToggleLauncher,
+                    borderRadius: BorderRadius.circular(14),
+                    child: Ink(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceAlt,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: const Icon(
+                        Icons.grid_view_rounded,
+                        color: AppColors.goldDeep,
+                        size: 20,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],

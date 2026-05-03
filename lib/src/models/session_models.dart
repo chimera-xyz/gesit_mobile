@@ -43,7 +43,10 @@ class AuthenticatedUser {
     required this.permissions,
     this.department,
     this.employeeId,
+    this.s21PlusUserId,
     this.phoneNumber,
+    this.bio,
+    this.profilePhotoUrl,
   });
 
   final String id;
@@ -53,7 +56,10 @@ class AuthenticatedUser {
   final List<String> permissions;
   final String? department;
   final String? employeeId;
+  final String? s21PlusUserId;
   final String? phoneNumber;
+  final String? bio;
+  final String? profilePhotoUrl;
 
   factory AuthenticatedUser.fromApiPayload(Map<String, dynamic> payload) {
     final rawUser = payload['user'];
@@ -67,7 +73,10 @@ class AuthenticatedUser {
       email: _normalizedString(userMap['email']) ?? '',
       department: _normalizedString(userMap['department']),
       employeeId: _normalizedString(userMap['employee_id']),
+      s21PlusUserId: _normalizedString(userMap['s21plus_user_id']),
       phoneNumber: _normalizedString(userMap['phone_number']),
+      bio: _normalizedString(userMap['bio']),
+      profilePhotoUrl: _normalizedString(userMap['profile_photo_url']),
       roles: _normalizedStringList(payload['roles']),
       permissions: _normalizedStringList(payload['permissions']),
     );
@@ -80,7 +89,10 @@ class AuthenticatedUser {
       email: _normalizedString(json['email']) ?? '',
       department: _normalizedString(json['department']),
       employeeId: _normalizedString(json['employee_id']),
+      s21PlusUserId: _normalizedString(json['s21plus_user_id']),
       phoneNumber: _normalizedString(json['phone_number']),
+      bio: _normalizedString(json['bio']),
+      profilePhotoUrl: _normalizedString(json['profile_photo_url']),
       roles: _normalizedStringList(json['roles']),
       permissions: _normalizedStringList(json['permissions']),
     );
@@ -93,7 +105,10 @@ class AuthenticatedUser {
       'email': email,
       'department': department,
       'employee_id': employeeId,
+      's21plus_user_id': s21PlusUserId,
       'phone_number': phoneNumber,
+      'bio': bio,
+      'profile_photo_url': profilePhotoUrl,
       'roles': roles,
       'permissions': permissions,
     };
@@ -136,6 +151,23 @@ class AuthenticatedUser {
     return department?.trim().isNotEmpty == true
         ? department!
         : 'Internal Workspace';
+  }
+
+  String? resolvedProfilePhotoUrl(String apiBaseUrl) {
+    final rawUrl = profilePhotoUrl?.trim();
+    if (rawUrl == null || rawUrl.isEmpty) {
+      return null;
+    }
+
+    final parsed = Uri.tryParse(rawUrl);
+    if (parsed?.hasScheme == true) {
+      return rawUrl;
+    }
+
+    final normalizedBaseUrl = apiBaseUrl.endsWith('/')
+        ? apiBaseUrl
+        : '$apiBaseUrl/';
+    return Uri.parse(normalizedBaseUrl).resolve(rawUrl).toString();
   }
 
   bool hasPermission(String permission) => permissions.contains(permission);

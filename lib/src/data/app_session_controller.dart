@@ -249,6 +249,43 @@ class AppSessionController extends ChangeNotifier {
     return payload;
   }
 
+  Future<void> updateCurrentUserProfile({
+    String? name,
+    String? email,
+    String? employeeId,
+    String? department,
+    String? phoneNumber,
+    String? bio,
+    ApiMultipartFilePayload? profilePhoto,
+  }) async {
+    final currentSession = _session;
+    if (currentSession == null) {
+      throw const GesitApiException(
+        'Sesi login belum tersedia untuk memperbarui profil.',
+      );
+    }
+
+    final payload = await _apiClient.updateCurrentUserProfile(
+      baseUrl: currentSession.apiBaseUrl,
+      cookies: currentSession.cookies,
+      name: name,
+      email: email,
+      employeeId: employeeId,
+      department: department,
+      phoneNumber: phoneNumber,
+      bio: bio,
+      profilePhoto: profilePhoto,
+    );
+
+    await syncSession(
+      currentSession.copyWith(
+        user: payload.user,
+        cookies: payload.cookies,
+        authenticatedAt: DateTime.now(),
+      ),
+    );
+  }
+
   Future<void> signOut() async {
     final currentSession = _session;
     _busy = true;

@@ -10,6 +10,8 @@ class ProfileScreen extends StatelessWidget {
     super.key,
     required this.userName,
     required this.userInitials,
+    this.userProfilePhotoUrl,
+    this.userBio,
     required this.userRoleLabel,
     required this.userDivisionLabel,
     required this.canOpenTasks,
@@ -18,11 +20,14 @@ class ProfileScreen extends StatelessWidget {
     required this.onOpenTasks,
     required this.onOpenKnowledgeHub,
     required this.onOpenHelpdesk,
+    required this.onOpenProfileDetails,
     required this.onLogout,
   });
 
   final String userName;
   final String userInitials;
+  final String? userProfilePhotoUrl;
+  final String? userBio;
   final String userRoleLabel;
   final String userDivisionLabel;
   final bool canOpenTasks;
@@ -31,6 +36,7 @@ class ProfileScreen extends StatelessWidget {
   final VoidCallback onOpenTasks;
   final VoidCallback onOpenKnowledgeHub;
   final VoidCallback onOpenHelpdesk;
+  final VoidCallback onOpenProfileDetails;
   final VoidCallback onLogout;
 
   @override
@@ -55,27 +61,20 @@ class ProfileScreen extends StatelessWidget {
         children: [
           RevealUp(
             child: BrandSurface(
+              onTap: onOpenProfileDetails,
               padding: const EdgeInsets.all(22),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Container(
-                        width: 58,
-                        height: 58,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [AppColors.goldDeep, AppColors.gold],
-                          ),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          userInitials,
-                          style: textTheme.headlineMedium?.copyWith(
-                            color: Colors.white,
-                          ),
+                      UserProfileAvatar(
+                        initials: userInitials,
+                        photoUrl: userProfilePhotoUrl,
+                        size: 58,
+                        radius: 20,
+                        textStyle: textTheme.headlineMedium?.copyWith(
+                          color: Colors.white,
                         ),
                       ),
                       const SizedBox(width: 14),
@@ -93,8 +92,24 @@ class ProfileScreen extends StatelessWidget {
                                 color: AppColors.inkMuted,
                               ),
                             ),
+                            if (userBio?.trim().isNotEmpty == true) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                userBio!.trim(),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: textTheme.bodySmall?.copyWith(
+                                  color: AppColors.inkSoft,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: AppColors.inkMuted,
                       ),
                     ],
                   ),

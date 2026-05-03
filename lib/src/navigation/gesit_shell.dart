@@ -15,6 +15,7 @@ import '../models/session_models.dart';
 import '../screens/chat/chat_call_screen.dart';
 import '../screens/chat/chat_conversation_screen.dart';
 import '../screens/chat/chat_hub_screen.dart';
+import '../screens/feed_screen.dart';
 import '../screens/feed_thread_screen.dart';
 import '../screens/chat/group_detail_screen.dart';
 import '../screens/forms_screen.dart';
@@ -22,6 +23,7 @@ import '../screens/helpdesk_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/knowledge_workspace_screen.dart';
 import '../screens/profile_screen.dart';
+import '../screens/profile_detail_screen.dart';
 import '../screens/submission_detail_screen.dart';
 import '../screens/tasks_screen.dart';
 import '../theme/app_theme.dart';
@@ -42,6 +44,7 @@ class _GesitShellState extends State<GesitShell>
   AppShellModule _currentModule = AppShellModule.home;
   AppShellModule _previousModule = AppShellModule.home;
   bool _isTransitioning = false;
+  bool _launcherExpanded = false;
   final Set<AppShellModule> _visitedModules = <AppShellModule>{
     AppShellModule.home,
   };
@@ -51,6 +54,7 @@ class _GesitShellState extends State<GesitShell>
   late final ChatWorkspaceController _chatController;
   late final FeedController _feedController;
   late final Listenable _homeTabListenable;
+  late final Listenable _navigationListenable;
   StreamSubscription<AppNotification>? _notificationOpenRequestSubscription;
 
   @override
@@ -78,6 +82,11 @@ class _GesitShellState extends State<GesitShell>
       _notificationController,
       _workspaceController,
       _feedController,
+    ]);
+    _navigationListenable = Listenable.merge([
+      _chatController,
+      _notificationController,
+      _workspaceController,
     ]);
     _syncModuleControllers(_currentModule);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -127,8 +136,30 @@ class _GesitShellState extends State<GesitShell>
     super.dispose();
   }
 
-  void _selectModule(AppShellModule module) {
+  void _setLauncherExpanded(bool expanded) {
+    if (_launcherExpanded == expanded) {
+      return;
+    }
+
+    setState(() => _launcherExpanded = expanded);
+  }
+
+  void _toggleLauncherExpanded() {
+    setState(() => _launcherExpanded = !_launcherExpanded);
+  }
+
+  void _handleHomeNavigationTap() {
+    if (_currentModule == AppShellModule.home) {
+      _setLauncherExpanded(false);
+      return;
+    }
+
+    _selectModule(AppShellModule.home);
+  }
+
+  void _selectModule(AppShellModule module, {bool expandLauncher = false}) {
     if (module == _currentModule) {
+      _setLauncherExpanded(expandLauncher);
       return;
     }
 
@@ -142,6 +173,7 @@ class _GesitShellState extends State<GesitShell>
       _currentModule = module;
       _visitedModules.add(module);
       _isTransitioning = true;
+      _launcherExpanded = expandLauncher;
     });
 
     _tabTransitionController.forward(from: 0);
@@ -167,6 +199,17 @@ class _GesitShellState extends State<GesitShell>
     pushBrandedRoute(
       context,
       FeedThreadScreen(controller: _feedController, postId: post.id),
+    );
+  }
+
+  void _openFeedTimeline() {
+    pushBrandedRoute(
+      context,
+      FeedScreen(
+        controller: _feedController,
+        userDivisionLabel: _session.user.divisionLabel,
+        onOpenThread: _openFeedThread,
+      ),
     );
   }
 
@@ -209,6 +252,73 @@ class _GesitShellState extends State<GesitShell>
       context,
       KnowledgeWorkspaceScreen(sessionController: widget.sessionController),
     );
+  }
+
+  void _openProfileDetails() {
+    pushBrandedRoute(
+      context,
+      ProfileDetailScreen(sessionController: widget.sessionController),
+    );
+  }
+
+  List<_LauncherItem> _buildLauncherItems(
+    AppSession session,
+    AppShellModule currentModule,
+  ) {
+    return <_LauncherItem>[
+      if (session.canAccessTasks)
+        _LauncherItem(
+          label: AppShellModule.tasks.label,
+          icon: AppShellModule.tasks.icon,
+          accentColor: AppColors.goldDeep,
+          selected: currentModule == AppShellModule.tasks,
+          badgeCount: _workspaceController.pendingActionCount,
+          onTap: () => _selectModule(AppShellModule.tasks),
+        ),
+      if (session.canAccessForms)
+        _LauncherItem(
+          label: AppShellModule.forms.label,
+          icon: AppShellModule.forms.icon,
+          accentColor: AppColors.blue,
+          selected: currentModule == AppShellModule.forms,
+          onTap: () => _selectModule(AppShellModule.forms),
+        ),
+      _LauncherItem(
+        label: 'AI Assist',
+        icon: Icons.auto_awesome_rounded,
+        accentColor: AppColors.emerald,
+        onTap: () {
+          _setLauncherExpanded(false);
+          _openAiAssist();
+        },
+      ),
+      if (session.canAccessChat)
+        _LauncherItem(
+          label: AppShellModule.chat.label,
+          icon: AppShellModule.chat.icon,
+          accentColor: AppColors.blue,
+          selected: currentModule == AppShellModule.chat,
+          badgeCount: _chatController.unreadConversationCount,
+          onTap: () => _selectModule(AppShellModule.chat),
+        ),
+      if (session.canAccessHelpdesk)
+        _LauncherItem(
+          label: 'Helpdesk',
+          icon: Icons.support_agent_rounded,
+          accentColor: AppColors.red,
+          onTap: () {
+            _setLauncherExpanded(false);
+            _openHelpdesk();
+          },
+        ),
+      _LauncherItem(
+        label: AppShellModule.profile.label,
+        icon: AppShellModule.profile.icon,
+        accentColor: AppColors.goldDeep,
+        selected: currentModule == AppShellModule.profile,
+        onTap: () => _selectModule(AppShellModule.profile),
+      ),
+    ];
   }
 
   void _openConversation(ConversationPreview conversation) {
@@ -708,6 +818,27 @@ class _GesitShellState extends State<GesitShell>
               ),
             ),
           ),
+          if (_launcherExpanded)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () => _setLauncherExpanded(false),
+                child: const SizedBox.expand(),
+              ),
+            ),
+          if (!keyboardVisible)
+            Positioned(
+              left: 14,
+              right: 14,
+              bottom: 0,
+              child: AnimatedBuilder(
+                animation: _navigationListenable,
+                builder: (context, _) => _LauncherOverlay(
+                  expanded: _launcherExpanded,
+                  items: _buildLauncherItems(session, resolvedCurrentModule),
+                ),
+              ),
+            ),
           _NotificationBannerLayer(
             controller: _notificationController,
             onOpenRequest: _handleNotificationOpenRequest,
@@ -721,7 +852,7 @@ class _GesitShellState extends State<GesitShell>
       bottomNavigationBar: keyboardVisible
           ? null
           : AnimatedBuilder(
-              animation: _chatController,
+              animation: _navigationListenable,
               builder: (context, _) {
                 final items = modules
                     .map(
@@ -739,6 +870,7 @@ class _GesitShellState extends State<GesitShell>
                 return _ShellBottomNavigationBar(
                   items: items,
                   currentModule: resolvedCurrentModule,
+                  onHomeTap: _handleHomeNavigationTap,
                   onSelect: _selectModule,
                 );
               },
@@ -754,6 +886,9 @@ class _GesitShellState extends State<GesitShell>
           key: const PageStorageKey('home-tab'),
           userName: session.user.name,
           userInitials: session.user.initials,
+          userProfilePhotoUrl: session.user.resolvedProfilePhotoUrl(
+            session.apiBaseUrl,
+          ),
           userRoleLabel: session.user.primaryRole,
           userDivisionLabel: session.user.divisionLabel,
           activeFormCount: _workspaceController.activeFormCount,
@@ -768,9 +903,12 @@ class _GesitShellState extends State<GesitShell>
           onOpenAiAssist: _openAiAssist,
           onOpenHelpdesk: _openHelpdesk,
           onOpenNotifications: _openNotifications,
+          onOpenProfileDetails: _openProfileDetails,
+          onToggleLauncher: _toggleLauncherExpanded,
           unreadNotificationCount: _notificationController.unreadCount,
           feedController: _feedController,
           onOpenFeedThread: _openFeedThread,
+          onOpenAllFeed: _openFeedTimeline,
         ),
       ),
       AppShellModule.tasks when session.canAccessTasks => TasksScreen(
@@ -791,6 +929,10 @@ class _GesitShellState extends State<GesitShell>
         key: const PageStorageKey('profile-tab'),
         userName: session.user.name,
         userInitials: session.user.initials,
+        userProfilePhotoUrl: session.user.resolvedProfilePhotoUrl(
+          session.apiBaseUrl,
+        ),
+        userBio: session.user.bio,
         userRoleLabel: session.user.primaryRole,
         userDivisionLabel: session.user.divisionLabel,
         canOpenTasks: session.canAccessTasks,
@@ -799,6 +941,7 @@ class _GesitShellState extends State<GesitShell>
         onOpenTasks: () => _selectModule(AppShellModule.tasks),
         onOpenKnowledgeHub: _openKnowledgeHub,
         onOpenHelpdesk: _openHelpdesk,
+        onOpenProfileDetails: _openProfileDetails,
         onLogout: widget.sessionController.signOut,
       ),
       _ => const SizedBox.shrink(),
@@ -919,15 +1062,115 @@ class _IncomingCallLayer extends StatelessWidget {
   }
 }
 
+class _LauncherOverlay extends StatefulWidget {
+  const _LauncherOverlay({required this.expanded, required this.items});
+
+  final bool expanded;
+  final List<_LauncherItem> items;
+
+  @override
+  State<_LauncherOverlay> createState() => _LauncherOverlayState();
+}
+
+class _LauncherOverlayState extends State<_LauncherOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 340),
+      reverseDuration: const Duration(milliseconds: 220),
+      value: widget.expanded ? 1 : 0,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _LauncherOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.expanded == widget.expanded) {
+      return;
+    }
+
+    if (widget.expanded) {
+      _controller.forward();
+    } else {
+      _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: !widget.expanded,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) {
+          if (!widget.expanded && _controller.value == 0) {
+            return const SizedBox.shrink();
+          }
+
+          final progress = Curves.easeOutCubic.transform(_controller.value);
+
+          return Opacity(
+            opacity: progress,
+            child: Transform.translate(
+              offset: Offset(0, (1 - progress) * 18),
+              child: ClipRect(
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  heightFactor: progress,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: AppColors.surface.withValues(alpha: 0.99),
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(color: AppColors.border),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x1A291C09),
+                          blurRadius: 24,
+                          offset: Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: _LauncherPanel(
+                        items: widget.items,
+                        progress: progress,
+                        onTap: (item) => item.onTap(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _ShellBottomNavigationBar extends StatelessWidget {
   const _ShellBottomNavigationBar({
     required this.items,
     required this.currentModule,
+    required this.onHomeTap,
     required this.onSelect,
   });
 
   final List<_NavItem> items;
   final AppShellModule currentModule;
+  final VoidCallback onHomeTap;
   final ValueChanged<AppShellModule> onSelect;
 
   @override
@@ -942,7 +1185,7 @@ class _ShellBottomNavigationBar extends StatelessWidget {
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: AppColors.surface.withValues(alpha: 0.98),
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(30),
             border: Border.all(color: AppColors.border),
             boxShadow: const [
               BoxShadow(
@@ -962,7 +1205,9 @@ class _ShellBottomNavigationBar extends StatelessWidget {
                       item: item,
                       selected: item.module == currentModule,
                       textTheme: textTheme,
-                      onTap: () => onSelect(item.module),
+                      onTap: item.module == AppShellModule.home
+                          ? onHomeTap
+                          : () => onSelect(item.module),
                     ),
                   ),
               ],
@@ -1034,6 +1279,179 @@ class _ShellNavigationItem extends StatelessWidget {
       ),
     );
   }
+}
+
+class _LauncherPanel extends StatelessWidget {
+  const _LauncherPanel({
+    required this.items,
+    required this.progress,
+    required this.onTap,
+  });
+
+  final List<_LauncherItem> items;
+  final double progress;
+  final ValueChanged<_LauncherItem> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 8.0;
+        const columns = 3;
+        const horizontalPadding = 8.0;
+        final itemWidth =
+            (constraints.maxWidth -
+                horizontalPadding -
+                (spacing * (columns - 1))) /
+            columns;
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 10),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            spacing: spacing,
+            runSpacing: spacing,
+            children: [
+              for (var index = 0; index < items.length; index++)
+                SizedBox(
+                  width: itemWidth,
+                  child: _LauncherActionButton(
+                    item: items[index],
+                    progress: _staggeredProgress(progress, index),
+                    onTap: () => onTap(items[index]),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  double _staggeredProgress(double progress, int index) {
+    final delay = (index * 0.055).clamp(0.0, 0.36).toDouble();
+    final value = ((progress - delay) / (1 - delay)).clamp(0.0, 1.0);
+    return value.toDouble();
+  }
+}
+
+class _LauncherActionButton extends StatelessWidget {
+  const _LauncherActionButton({
+    required this.item,
+    required this.progress,
+    required this.onTap,
+  });
+
+  final _LauncherItem item;
+  final double progress;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final backgroundColor = item.selected
+        ? item.accentColor.withValues(alpha: 0.12)
+        : AppColors.surfaceAlt;
+    final borderColor = item.selected
+        ? item.accentColor.withValues(alpha: 0.34)
+        : AppColors.border;
+
+    return Opacity(
+      opacity: progress,
+      child: Transform.translate(
+        offset: Offset(0, (1 - progress) * -8),
+        child: Transform.scale(
+          scale: 0.96 + (progress * 0.04),
+          child: Semantics(
+            button: true,
+            selected: item.selected,
+            label: item.label,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(18),
+                child: Ink(
+                  height: 76,
+                  decoration: BoxDecoration(
+                    color: backgroundColor,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 8,
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: item.accentColor.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Icon(
+                                item.icon,
+                                color: item.accentColor,
+                                size: 20,
+                              ),
+                            ),
+                            if (item.badgeCount > 0)
+                              Positioned(
+                                top: -7,
+                                right: -9,
+                                child: _NavBadge(count: item.badgeCount),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 7),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            item.label,
+                            maxLines: 1,
+                            style: textTheme.labelSmall?.copyWith(
+                              color: AppColors.ink,
+                              fontWeight: FontWeight.w800,
+                              height: 1.05,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LauncherItem {
+  const _LauncherItem({
+    required this.label,
+    required this.icon,
+    required this.accentColor,
+    required this.onTap,
+    this.selected = false,
+    this.badgeCount = 0,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color accentColor;
+  final VoidCallback onTap;
+  final bool selected;
+  final int badgeCount;
 }
 
 class _NavItem {

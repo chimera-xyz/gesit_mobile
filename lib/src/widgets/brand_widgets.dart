@@ -374,6 +374,76 @@ class AppSearchField extends StatelessWidget {
   }
 }
 
+class UserProfileAvatar extends StatelessWidget {
+  const UserProfileAvatar({
+    super.key,
+    required this.initials,
+    this.photoUrl,
+    this.size = 56,
+    this.radius = 20,
+    this.textStyle,
+  });
+
+  final String initials;
+  final String? photoUrl;
+  final double size;
+  final double radius;
+  final TextStyle? textStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedPhotoUrl = photoUrl?.trim();
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        gradient: const LinearGradient(
+          colors: [AppColors.goldDeep, AppColors.gold],
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: normalizedPhotoUrl == null || normalizedPhotoUrl.isEmpty
+          ? _InitialsAvatarText(initials: initials, textStyle: textStyle)
+          : Image.network(
+              normalizedPhotoUrl,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return _InitialsAvatarText(
+                  initials: initials,
+                  textStyle: textStyle,
+                );
+              },
+            ),
+    );
+  }
+}
+
+class _InitialsAvatarText extends StatelessWidget {
+  const _InitialsAvatarText({required this.initials, this.textStyle});
+
+  final String initials;
+  final TextStyle? textStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        initials,
+        style:
+            textStyle ??
+            Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+      ),
+    );
+  }
+}
+
 class ConversationAvatar extends StatelessWidget {
   const ConversationAvatar({
     super.key,

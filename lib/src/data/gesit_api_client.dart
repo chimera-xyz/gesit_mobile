@@ -147,6 +147,77 @@ class GesitApiClient {
     );
   }
 
+  Future<AuthenticatedApiPayload> updateCurrentUserProfile({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    String? name,
+    String? email,
+    String? employeeId,
+    String? department,
+    String? phoneNumber,
+    String? bio,
+    ApiMultipartFilePayload? profilePhoto,
+  }) async {
+    final body = <String, dynamic>{
+      if (name != null) 'name': name.trim(),
+      if (email != null) 'email': email.trim(),
+      if (employeeId != null) 'employee_id': employeeId.trim(),
+      if (department != null) 'department': department.trim(),
+      if (phoneNumber != null) 'phone_number': phoneNumber.trim(),
+      if (bio != null) 'bio': bio.trim(),
+    };
+
+    final JsonApiPayload payload;
+    if (profilePhoto == null) {
+      payload = await _putJson(
+        baseUrl: baseUrl,
+        path: '/api/user/profile',
+        cookies: cookies,
+        body: body,
+      );
+    } else {
+      final request = http.MultipartRequest(
+        'POST',
+        _buildUri(baseUrl, '/api/user/profile'),
+      );
+      request.headers.addAll(_headersWithCookies(_requestHeaders, cookies));
+      request.fields.addAll(_flattenFormBody(body));
+
+      final mediaType = _parseMediaType(profilePhoto.contentType);
+      if (profilePhoto.bytes != null) {
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'profile_photo',
+            profilePhoto.bytes!,
+            filename: profilePhoto.fileName,
+            contentType: mediaType,
+          ),
+        );
+      } else if (profilePhoto.path != null &&
+          profilePhoto.path!.trim().isNotEmpty) {
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'profile_photo',
+            profilePhoto.path!,
+            filename: profilePhoto.fileName,
+            contentType: mediaType,
+          ),
+        );
+      } else {
+        throw const GesitApiException(
+          'Foto profil tidak punya data file yang valid.',
+        );
+      }
+
+      payload = await _sendMultipartRequest(request, cookies: cookies);
+    }
+
+    return AuthenticatedApiPayload(
+      user: AuthenticatedUser.fromApiPayload(payload.data),
+      cookies: payload.cookies,
+    );
+  }
+
   Future<BiometricEnrollmentPayload> enrollMobileBiometric({
     required String baseUrl,
     required Map<String, String> cookies,

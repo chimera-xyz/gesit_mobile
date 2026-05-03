@@ -23,6 +23,10 @@ class AppRuntimeConfig {
   static bool get hasExplicitApiBaseUrlOverride =>
       _rawDefaultApiBaseUrl.trim().isNotEmpty;
 
+  static bool get _hasDevelopmentApiBaseUrlOverride =>
+      hasExplicitApiBaseUrlOverride ||
+      (kDebugMode && _debugApiBaseUrlOverride.trim().isNotEmpty);
+
   static String get defaultApiBaseUrl {
     final fromEnvironment = _rawDefaultApiBaseUrl.trim();
     if (fromEnvironment.isNotEmpty) {
@@ -75,6 +79,10 @@ class AppRuntimeConfig {
 
   static String normalizePersistedBaseUrl(String? rawValue) {
     final normalized = normalizeBaseUrl(rawValue);
+    if (_hasDevelopmentApiBaseUrlOverride && normalized != defaultApiBaseUrl) {
+      return defaultApiBaseUrl;
+    }
+
     if (!_shouldMigrateLegacyPersistedBaseUrl(normalized)) {
       return normalized;
     }
