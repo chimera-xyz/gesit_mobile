@@ -83,6 +83,8 @@ flutter:
   assets:
     - assets/branding/company-logo.svg
     - assets/branding/company-login-lockup.svg
+    - assets/illustrations/mascot-offline-sad.png
+    - assets/illustrations/mascot-server-confused.png
     - assets/audio/yulie_sekuritas_notifikasi.mp3
     - assets/audio/yulie_sekuritas_notifikasi_v2.wav
 

@@ -137,6 +137,82 @@ void main() {
         releaseLogout.complete();
       },
     );
+
+    test(
+      'bootstrap keeps a stored session when the backend cannot be reached',
+      () async {
+        final storedSession = AppSession(
+          user: const AuthenticatedUser(
+            id: 'user-1',
+            name: 'Raihan Carjasti',
+            email: 'raihan@example.com',
+            roles: ['IT Staff'],
+            permissions: ['view submissions'],
+          ),
+          apiBaseUrl: 'http://localhost:8000',
+          cookies: const {'gesit_session': 'stored-session'},
+          rememberSession: true,
+          authenticatedAt: DateTime(2026, 4, 19, 8, 30),
+        );
+        await SessionStore.writeRememberSession(true);
+        await SessionStore.writeSession(storedSession);
+
+        final controller = AppSessionController(
+          apiClient: GesitApiClient(
+            httpClient: MockClient((request) async {
+              throw TimeoutException('backend timeout');
+            }),
+          ),
+        );
+        addTearDown(controller.dispose);
+
+        await controller.bootstrap();
+
+        expect(controller.status, AppSessionStatus.authenticated);
+        expect(controller.session?.user.email, 'raihan@example.com');
+        expect(controller.session?.cookies['gesit_session'], 'stored-session');
+        expect(await SessionStore.readSession(), isNotNull);
+      },
+    );
+
+    test(
+      'bootstrap clears a stored session when the server rejects it',
+      () async {
+        await SessionStore.writeRememberSession(true);
+        await SessionStore.writeSession(
+          AppSession(
+            user: const AuthenticatedUser(
+              id: 'user-1',
+              name: 'Raihan Carjasti',
+              email: 'raihan@example.com',
+              roles: ['IT Staff'],
+              permissions: ['view submissions'],
+            ),
+            apiBaseUrl: 'http://localhost:8000',
+            cookies: const {'gesit_session': 'expired-session'},
+            rememberSession: true,
+            authenticatedAt: DateTime(2026, 4, 19, 8, 30),
+          ),
+        );
+
+        final controller = AppSessionController(
+          apiClient: GesitApiClient(
+            httpClient: MockClient((request) async {
+              return _jsonResponse({
+                'message': 'Unauthenticated.',
+              }, statusCode: 401);
+            }),
+          ),
+        );
+        addTearDown(controller.dispose);
+
+        await controller.bootstrap();
+
+        expect(controller.status, AppSessionStatus.unauthenticated);
+        expect(controller.session, isNull);
+        expect(await SessionStore.readSession(), isNull);
+      },
+    );
   });
 
   group('GesitApiClient', () {

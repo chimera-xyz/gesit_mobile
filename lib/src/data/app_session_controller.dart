@@ -109,13 +109,57 @@ class AppSessionController extends ChangeNotifier {
       await SessionStore.writeSession(_session!);
       _status = AppSessionStatus.authenticated;
       _errorMessage = null;
+    } on TimeoutException {
+      await _restoreStoredSessionAfterConnectivityFailure(
+        storedSession,
+        normalizedBaseUrl,
+      );
+    } on GesitApiException catch (exception) {
+      if (_shouldClearStoredSession(exception)) {
+        _session = null;
+        _status = AppSessionStatus.unauthenticated;
+        await SessionStore.clearSession(keepApiBaseUrl: true);
+      } else {
+        await _restoreStoredSessionAfterConnectivityFailure(
+          storedSession,
+          normalizedBaseUrl,
+        );
+      }
     } catch (_) {
-      _session = null;
-      _status = AppSessionStatus.unauthenticated;
-      await SessionStore.clearSession(keepApiBaseUrl: true);
+      await _restoreStoredSessionAfterConnectivityFailure(
+        storedSession,
+        normalizedBaseUrl,
+      );
     }
 
     _notifyListenersSafely();
+  }
+
+  Future<void> _restoreStoredSessionAfterConnectivityFailure(
+    AppSession? storedSession,
+    String normalizedBaseUrl,
+  ) async {
+    if (storedSession == null) {
+      _session = null;
+      _status = AppSessionStatus.unauthenticated;
+      await SessionStore.clearSession(keepApiBaseUrl: true);
+      return;
+    }
+
+    final restoredSession = storedSession.copyWith(
+      apiBaseUrl: normalizedBaseUrl,
+    );
+    _session = restoredSession;
+    _status = AppSessionStatus.authenticated;
+    _errorMessage = null;
+    await SessionStore.writeSession(restoredSession);
+  }
+
+  bool _shouldClearStoredSession(GesitApiException exception) {
+    return switch (exception.statusCode) {
+      401 || 403 || 419 => true,
+      _ => false,
+    };
   }
 
   Future<void> signIn({

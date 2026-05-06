@@ -40,51 +40,51 @@ ThemeData buildAppTheme() {
     visualDensity: VisualDensity.standard,
   );
 
-  final textTheme = GoogleFonts.instrumentSansTextTheme(base.textTheme)
+  final textTheme = GoogleFonts.plusJakartaSansTextTheme(base.textTheme)
       .copyWith(
-        displayLarge: GoogleFonts.instrumentSans(
+        displayLarge: GoogleFonts.plusJakartaSans(
           fontSize: 38,
           fontWeight: FontWeight.w700,
           height: 1.08,
           color: AppColors.ink,
         ),
-        displayMedium: GoogleFonts.instrumentSans(
+        displayMedium: GoogleFonts.plusJakartaSans(
           fontSize: 32,
           fontWeight: FontWeight.w700,
           height: 1.08,
           color: AppColors.ink,
         ),
-        headlineMedium: GoogleFonts.instrumentSans(
+        headlineMedium: GoogleFonts.plusJakartaSans(
           fontSize: 24,
           fontWeight: FontWeight.w700,
           height: 1.12,
           color: AppColors.ink,
         ),
-        titleLarge: GoogleFonts.instrumentSans(
+        titleLarge: GoogleFonts.plusJakartaSans(
           fontSize: 20,
           fontWeight: FontWeight.w700,
           height: 1.2,
           color: AppColors.ink,
         ),
-        titleMedium: GoogleFonts.instrumentSans(
+        titleMedium: GoogleFonts.plusJakartaSans(
           fontSize: 16,
           fontWeight: FontWeight.w700,
           height: 1.2,
           color: AppColors.ink,
         ),
-        bodyLarge: GoogleFonts.instrumentSans(
+        bodyLarge: GoogleFonts.plusJakartaSans(
           fontSize: 16,
           fontWeight: FontWeight.w500,
           height: 1.45,
           color: AppColors.ink,
         ),
-        bodyMedium: GoogleFonts.instrumentSans(
+        bodyMedium: GoogleFonts.plusJakartaSans(
           fontSize: 14,
           fontWeight: FontWeight.w500,
           height: 1.5,
           color: AppColors.inkSoft,
         ),
-        labelLarge: GoogleFonts.instrumentSans(
+        labelLarge: GoogleFonts.plusJakartaSans(
           fontSize: 14,
           fontWeight: FontWeight.w700,
           height: 1.1,

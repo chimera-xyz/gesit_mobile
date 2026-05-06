@@ -388,6 +388,7 @@ class _FeedComposerSheetState extends State<_FeedComposerSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
     final canSubmit =
         _controller.text.trim().isNotEmpty &&
         (_visibility != FeedVisibility.selectedUsers ||
@@ -395,10 +396,14 @@ class _FeedComposerSheetState extends State<_FeedComposerSheet> {
     final selectedAudienceMembers = widget.audienceMembers
         .where((member) => _selectedAudienceUserIds.contains(member.id))
         .toList(growable: false);
+    final audienceDescription = _audienceDescription(
+      _visibility,
+      userDivisionLabel: widget.userDivisionLabel,
+    );
 
     return _KeyboardAwareSheetFrame(
-      radius: 30,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      radius: 28,
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -413,63 +418,71 @@ class _FeedComposerSheetState extends State<_FeedComposerSheet> {
               ),
             ),
           ),
-          const SizedBox(height: 18),
-          const Text(
-            'Tulis update',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: AppColors.ink,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _audienceDescription(
-              _visibility,
-              userDivisionLabel: widget.userDivisionLabel,
-            ),
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 18),
-          SegmentedButton<FeedVisibility>(
-            segments: [
-              const ButtonSegment(
-                value: FeedVisibility.publicScope,
-                icon: Icon(Icons.public_rounded),
-                label: Text('Semua'),
-              ),
-              ButtonSegment(
-                value: FeedVisibility.department,
-                icon: const Icon(Icons.groups_rounded),
-                label: Text(
-                  widget.userDivisionLabel.trim().isEmpty ? 'Divisi' : 'Divisi',
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.goldSoft,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.borderStrong),
+                ),
+                child: const Icon(
+                  Icons.edit_note_rounded,
+                  color: AppColors.goldDeep,
                 ),
               ),
-              const ButtonSegment(
-                value: FeedVisibility.selectedUsers,
-                icon: Icon(Icons.alternate_email_rounded),
-                label: Text('Tertentu'),
-              ),
-              const ButtonSegment(
-                value: FeedVisibility.privateScope,
-                icon: Icon(Icons.lock_rounded),
-                label: Text('Private'),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Tulis update',
+                      style: textTheme.titleLarge?.copyWith(
+                        fontSize: 21,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      'Bagikan informasi internal sesuai audiens.',
+                      style: textTheme.bodyMedium?.copyWith(
+                        color: AppColors.inkSoft,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
-            selected: <FeedVisibility>{_visibility},
-            onSelectionChanged: (selection) {
+          ),
+          const SizedBox(height: 20),
+          const _ComposerSectionLabel(
+            icon: Icons.visibility_rounded,
+            label: 'Audiens',
+          ),
+          const SizedBox(height: 10),
+          _FeedVisibilitySelector(
+            value: _visibility,
+            userDivisionLabel: widget.userDivisionLabel,
+            onChanged: (value) {
               setState(() {
-                _visibility = selection.first;
+                _visibility = value;
               });
             },
           ),
+          const SizedBox(height: 10),
+          _ComposerAudienceNote(description: audienceDescription),
           if (_visibility == FeedVisibility.selectedUsers) ...[
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: AppColors.surfaceAlt,
-                borderRadius: BorderRadius.circular(18),
+                color: AppColors.surfaceMuted,
+                borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: AppColors.border),
               ),
               child: Column(
@@ -517,7 +530,7 @@ class _FeedComposerSheetState extends State<_FeedComposerSheet> {
                       widget.audienceMembers.isEmpty
                           ? 'Daftar user belum tersedia untuk dipilih.'
                           : 'Pilih user yang boleh melihat thread ini.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      style: textTheme.bodySmall?.copyWith(
                         color: AppColors.inkMuted,
                       ),
                     )
@@ -543,6 +556,11 @@ class _FeedComposerSheetState extends State<_FeedComposerSheet> {
             ),
           ],
           const SizedBox(height: 18),
+          const _ComposerSectionLabel(
+            icon: Icons.subject_rounded,
+            label: 'Isi update',
+          ),
+          const SizedBox(height: 10),
           TextField(
             controller: _controller,
             maxLines: 7,
@@ -550,22 +568,59 @@ class _FeedComposerSheetState extends State<_FeedComposerSheet> {
             maxLength: 3000,
             textCapitalization: TextCapitalization.sentences,
             keyboardType: TextInputType.multiline,
-            decoration: const InputDecoration(
+            style: textTheme.bodyLarge?.copyWith(
+              color: AppColors.ink,
+              fontWeight: FontWeight.w600,
+            ),
+            decoration: InputDecoration(
               hintText: 'Jangan lupa besok ada MCU, prepare semua ya...',
+              fillColor: AppColors.surfaceMuted,
+              contentPadding: const EdgeInsets.all(18),
+              counterStyle: textTheme.bodySmall?.copyWith(
+                color: AppColors.inkMuted,
+                fontWeight: FontWeight.w700,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(20),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(20),
+                borderSide: const BorderSide(color: AppColors.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(20),
+                borderSide: const BorderSide(
+                  color: AppColors.goldDeep,
+                  width: 1.3,
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Row(
             children: [
               Expanded(
                 child: OutlinedButton(
                   onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
                   child: const Text('Batal'),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
                   onPressed: canSubmit
                       ? () {
                           final content = _controller.text.trim();
@@ -591,6 +646,263 @@ class _FeedComposerSheetState extends State<_FeedComposerSheet> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ComposerSectionLabel extends StatelessWidget {
+  const _ComposerSectionLabel({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: AppColors.inkSoft),
+        const SizedBox(width: 7),
+        Text(
+          label,
+          style: textTheme.labelLarge?.copyWith(
+            color: AppColors.ink,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ComposerAudienceNote extends StatelessWidget {
+  const _ComposerAudienceNote({required this.description});
+
+  final String description;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 17,
+            color: AppColors.goldDeep,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              description,
+              style: textTheme.bodySmall?.copyWith(
+                color: AppColors.inkSoft,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeedVisibilitySelector extends StatelessWidget {
+  const _FeedVisibilitySelector({
+    required this.value,
+    required this.userDivisionLabel,
+    required this.onChanged,
+  });
+
+  final FeedVisibility value;
+  final String userDivisionLabel;
+  final ValueChanged<FeedVisibility> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final division = userDivisionLabel.trim();
+    final options = <_FeedVisibilityOptionData>[
+      const _FeedVisibilityOptionData(
+        value: FeedVisibility.publicScope,
+        icon: Icons.public_rounded,
+        title: 'Semua',
+        subtitle: 'Seluruh user',
+      ),
+      _FeedVisibilityOptionData(
+        value: FeedVisibility.department,
+        icon: Icons.groups_rounded,
+        title: 'Divisi',
+        subtitle: division.isEmpty ? 'Divisi Anda' : division,
+      ),
+      const _FeedVisibilityOptionData(
+        value: FeedVisibility.selectedUsers,
+        icon: Icons.alternate_email_rounded,
+        title: 'Tertentu',
+        subtitle: 'User pilihan',
+      ),
+      const _FeedVisibilityOptionData(
+        value: FeedVisibility.privateScope,
+        icon: Icons.lock_rounded,
+        title: 'Private',
+        subtitle: 'Hanya saya',
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 10.0;
+        final columns = constraints.maxWidth >= 520 ? 4 : 2;
+        final itemWidth =
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final option in options)
+              SizedBox(
+                width: itemWidth,
+                child: _FeedVisibilityOption(
+                  data: option,
+                  selected: option.value == value,
+                  onTap: () => onChanged(option.value),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _FeedVisibilityOptionData {
+  const _FeedVisibilityOptionData({
+    required this.value,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final FeedVisibility value;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+}
+
+class _FeedVisibilityOption extends StatelessWidget {
+  const _FeedVisibilityOption({
+    required this.data,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _FeedVisibilityOptionData data;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final backgroundColor = selected ? AppColors.surfaceAlt : AppColors.surface;
+    final borderColor = selected ? AppColors.borderStrong : AppColors.border;
+    final titleColor = AppColors.ink;
+    final subtitleColor = selected ? AppColors.goldDeep : AppColors.inkMuted;
+    final iconBackground = selected ? AppColors.goldSoft : AppColors.surfaceAlt;
+    final iconColor = selected ? AppColors.goldDeep : AppColors.inkSoft;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: data.title,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOutCubic,
+            height: 72,
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: borderColor, width: selected ? 1.3 : 1),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: AppColors.goldDeep.withValues(alpha: 0.08),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: iconBackground,
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Icon(data.icon, size: 18, color: iconColor),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        data.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.labelLarge?.copyWith(
+                          color: titleColor,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        data.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: subtitleColor,
+                          fontWeight: FontWeight.w700,
+                          height: 1.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (selected) ...[
+                  const SizedBox(width: 6),
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    size: 18,
+                    color: AppColors.goldDeep,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

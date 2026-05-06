@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'data/app_session_controller.dart';
 import 'data/app_update_controller.dart';
+import 'data/connection_status_controller.dart';
 import 'data/gesit_api_client.dart';
 import 'navigation/gesit_shell.dart';
 import 'screens/login_screen.dart';
@@ -10,6 +13,7 @@ import 'screens/opening_screen.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_session_scope.dart';
 import 'widgets/app_update_prompt.dart';
+import 'widgets/connection_status_gate.dart';
 
 class GesitApp extends StatefulWidget {
   const GesitApp({super.key});
@@ -21,14 +25,17 @@ class GesitApp extends StatefulWidget {
 class _GesitAppState extends State<GesitApp> with WidgetsBindingObserver {
   late final AppSessionController _sessionController;
   late final AppUpdateController _appUpdateController;
+  late final ConnectionStatusController _connectionStatusController;
   bool _openingComplete = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _sessionController = AppSessionController(apiClient: GesitApiClient())
-      ..bootstrap();
+    _connectionStatusController = ConnectionStatusController();
+    _sessionController = AppSessionController(apiClient: GesitApiClient());
+    _sessionController.addListener(_syncConnectionMonitor);
+    unawaited(_sessionController.bootstrap());
     _appUpdateController = AppUpdateController(
       sessionController: _sessionController,
     )..bootstrap();
@@ -47,6 +54,8 @@ class _GesitAppState extends State<GesitApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _sessionController.removeListener(_syncConnectionMonitor);
+    _connectionStatusController.dispose();
     _appUpdateController.dispose();
     _sessionController.dispose();
     super.dispose();
@@ -58,6 +67,18 @@ class _GesitAppState extends State<GesitApp> with WidgetsBindingObserver {
       _appUpdateController.refreshIfStale(
         force: _appUpdateController.shouldShowPrompt,
       );
+      if (_sessionController.isAuthenticated) {
+        unawaited(_connectionStatusController.checkNow());
+      }
+    }
+  }
+
+  void _syncConnectionMonitor() {
+    final session = _sessionController.session;
+    if (_sessionController.isAuthenticated && session != null) {
+      _connectionStatusController.start(session.apiBaseUrl);
+    } else {
+      _connectionStatusController.stop();
     }
   }
 
@@ -88,9 +109,13 @@ class _GesitAppState extends State<GesitApp> with WidgetsBindingObserver {
             onFinished: _handleOpeningComplete,
           );
         } else if (_sessionController.isAuthenticated) {
-          currentScreen = GesitShell(
-            key: const ValueKey('shell'),
-            sessionController: _sessionController,
+          currentScreen = ConnectionStatusGate(
+            key: const ValueKey('connection-gate'),
+            controller: _connectionStatusController,
+            child: GesitShell(
+              key: const ValueKey('shell'),
+              sessionController: _sessionController,
+            ),
           );
         } else {
           currentScreen = LoginScreen(
