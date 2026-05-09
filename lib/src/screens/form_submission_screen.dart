@@ -30,6 +30,7 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
   final Map<String, String?> _selectedOptions = {};
   final Map<String, Set<String>> _selectedMultiOptions = {};
   final Map<String, PlatformFile> _selectedFiles = {};
+  final Map<String, List<_ProcurementItemControllers>> _procurementItems = {};
   bool _showApprovalDetails = false;
   bool _submitting = false;
 
@@ -53,6 +54,9 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
                   .where((item) => item.isNotEmpty),
           };
           break;
+        case FormFieldType.procurementItems:
+          _procurementItems[field.id] = [_ProcurementItemControllers()];
+          break;
         case FormFieldType.text:
         case FormFieldType.multiline:
         case FormFieldType.date:
@@ -71,6 +75,11 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
   void dispose() {
     for (final controller in _controllers.values) {
       controller.dispose();
+    }
+    for (final items in _procurementItems.values) {
+      for (final item in items) {
+        item.dispose();
+      }
     }
     super.dispose();
   }
@@ -487,7 +496,118 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
             ),
           ),
         );
+      case FormFieldType.procurementItems:
+        return _buildProcurementItemsField(field);
     }
+  }
+
+  Widget _buildProcurementItemsField(FormFieldConfig field) {
+    final items = _procurementItemControllers(field);
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var index = 0; index < items.length; index++) ...[
+          if (items.length > 1) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Item ${index + 1}',
+                    style: textTheme.bodySmall?.copyWith(
+                      color: AppColors.inkMuted,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                if (items.length > _minItems(field))
+                  TextButton(
+                    onPressed: field.readOnly
+                        ? null
+                        : () => _removeProcurementItem(field, index),
+                    child: const Text('Hapus'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+          TextField(
+            controller: items[index].description,
+            readOnly: field.readOnly,
+            textInputAction: TextInputAction.next,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Nama Barang / Software',
+              hintText: 'Contoh: Laptop kerja divisi marketing',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: items[index].quantity,
+            readOnly: field.readOnly,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(labelText: 'Quantity'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: items[index].unitPrice,
+            readOnly: field.readOnly,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(
+              labelText: 'Harga Satuan',
+              prefixText: 'Rp ',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: items[index].specifications,
+            readOnly: field.readOnly,
+            maxLines: 4,
+            minLines: 3,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Spesifikasi',
+              alignLabelWithHint: true,
+            ),
+          ),
+          if (items.length == 1 && items.length > _minItems(field)) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: field.readOnly
+                    ? null
+                    : () => _removeProcurementItem(field, index),
+                child: const Text('Hapus'),
+              ),
+            ),
+          ],
+          if (index != items.length - 1) ...[
+            const SizedBox(height: 14),
+            const Divider(height: 1),
+            const SizedBox(height: 14),
+          ],
+        ],
+        if (items.length < _maxItems(field)) ...[
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: field.readOnly
+                  ? null
+                  : () => _addProcurementItem(field),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Tambah item'),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
   TextInputType _keyboardType(FormFieldType type) {
@@ -503,6 +623,7 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
       case FormFieldType.checkbox:
       case FormFieldType.date:
       case FormFieldType.file:
+      case FormFieldType.procurementItems:
         return TextInputType.text;
     }
   }
@@ -568,6 +689,45 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
     setState(() {});
   }
 
+  List<_ProcurementItemControllers> _procurementItemControllers(
+    FormFieldConfig field,
+  ) {
+    return _procurementItems.putIfAbsent(
+      field.id,
+      () => [_ProcurementItemControllers()],
+    );
+  }
+
+  int _minItems(FormFieldConfig field) =>
+      field.minItems < 1 ? 1 : field.minItems;
+
+  int _maxItems(FormFieldConfig field) {
+    final min = _minItems(field);
+    return field.maxItems < min ? min : field.maxItems;
+  }
+
+  void _addProcurementItem(FormFieldConfig field) {
+    final items = _procurementItemControllers(field);
+    if (items.length >= _maxItems(field)) {
+      return;
+    }
+
+    setState(() => items.add(_ProcurementItemControllers()));
+  }
+
+  void _removeProcurementItem(FormFieldConfig field, int index) {
+    final items = _procurementItemControllers(field);
+    if (items.length <= _minItems(field) ||
+        index < 0 ||
+        index >= items.length) {
+      return;
+    }
+
+    final removed = items.removeAt(index);
+    removed.dispose();
+    setState(() {});
+  }
+
   DateTime? _tryParseDate(String? value) {
     if (value == null || value.trim().isEmpty) {
       return null;
@@ -591,6 +751,22 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
             .toList(growable: false);
       case FormFieldType.file:
         return _selectedFiles[field.id];
+      case FormFieldType.procurementItems:
+        return _procurementItemControllers(field)
+            .map((item) => item.toPayload())
+            .where((item) {
+              final description = (item['description'] ?? '').toString().trim();
+              final specifications = (item['specifications'] ?? '')
+                  .toString()
+                  .trim();
+              final unitPrice = item['unit_price'] is num
+                  ? item['unit_price'] as num
+                  : 0;
+              return description.isNotEmpty ||
+                  specifications.isNotEmpty ||
+                  unitPrice > 0;
+            })
+            .toList(growable: false);
       case FormFieldType.date:
         final rawValue = _controllers[field.id]?.text.trim() ?? '';
         final parsed = _tryParseDate(rawValue);
@@ -635,6 +811,11 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
           break;
         case FormFieldType.checkbox:
           if (value is List<String> && value.isNotEmpty) {
+            formData[field.id] = value;
+          }
+          break;
+        case FormFieldType.procurementItems:
+          if (value is List && value.isNotEmpty) {
             formData[field.id] = value;
           }
           break;
@@ -711,6 +892,40 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
         setState(() => _submitting = false);
       }
     }
+  }
+}
+
+class _ProcurementItemControllers {
+  _ProcurementItemControllers()
+    : description = TextEditingController(),
+      quantity = TextEditingController(text: '1'),
+      unitPrice = TextEditingController(),
+      specifications = TextEditingController();
+
+  final TextEditingController description;
+  final TextEditingController quantity;
+  final TextEditingController unitPrice;
+  final TextEditingController specifications;
+
+  Map<String, Object> toPayload() {
+    return {
+      'description': description.text.trim(),
+      'quantity': _numberValue(quantity.text),
+      'unit_price': _numberValue(unitPrice.text),
+      'specifications': specifications.text.trim(),
+    };
+  }
+
+  void dispose() {
+    description.dispose();
+    quantity.dispose();
+    unitPrice.dispose();
+    specifications.dispose();
+  }
+
+  num _numberValue(String value) {
+    final normalized = value.trim().replaceAll('.', '').replaceAll(',', '.');
+    return num.tryParse(normalized) ?? 0;
   }
 }
 

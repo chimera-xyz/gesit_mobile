@@ -76,6 +76,64 @@ void main() {
         expect(controller.canShowActionableTasksLane, isTrue);
       },
     );
+
+    test('maps procurement items as structured submission fields', () async {
+      await sessionController.syncSession(_buildSession(), notify: false);
+      final controller = WorkspaceDataController(
+        sessionController: sessionController,
+        apiClient: GesitApiClient(
+          httpClient: MockClient((request) async {
+            expect(request.method, 'GET');
+            expect(request.url.path, '/api/form-submissions');
+
+            return _jsonResponse({
+              'submissions': [
+                _submissionJson(
+                  id: 43,
+                  formFields: [
+                    {
+                      'id': 'items',
+                      'label': 'Daftar Barang / Software',
+                      'type': 'procurement_items',
+                    },
+                  ],
+                  formData: {
+                    'items': [
+                      {
+                        'description': 'SSD 512GB',
+                        'quantity': 1,
+                        'unit_price': 1800000,
+                        'amount': 1800000,
+                        'specifications': 'NVMe Gen 4 untuk workstation.',
+                      },
+                    ],
+                  },
+                ),
+              ],
+            });
+          }),
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.refreshTasks();
+
+      final task = controller.tasks.single;
+      final field = task.formFields.single;
+
+      expect(field.label, 'Daftar Barang / Software');
+      expect(field.isProcurementItems, isTrue);
+      expect(field.value, contains('SSD 512GB'));
+      expect(field.value, contains('1.800.000'));
+      expect(field.procurementItems, hasLength(1));
+      expect(field.procurementItems.single.description, 'SSD 512GB');
+      expect(field.procurementItems.single.quantity, 1);
+      expect(field.procurementItems.single.unitPrice, 1800000);
+      expect(
+        field.procurementItems.single.specifications,
+        'NVMe Gen 4 untuk workstation.',
+      );
+    });
   });
 }
 
@@ -99,6 +157,8 @@ AppSession _buildSession() {
 Map<String, dynamic> _submissionJson({
   required int id,
   List<Map<String, dynamic>> availableActions = const [],
+  List<Map<String, dynamic>> formFields = const [],
+  Map<String, dynamic> formData = const <String, dynamic>{},
 }) {
   return {
     'id': id,
@@ -116,11 +176,11 @@ Map<String, dynamic> _submissionJson({
           ],
         },
       },
-      'form_config': {'fields': <Map<String, dynamic>>[]},
+      'form_config': {'fields': formFields},
     },
     'available_actions': availableActions,
     'approval_steps': <Map<String, dynamic>>[],
-    'form_data': <String, dynamic>{},
+    'form_data': formData,
   };
 }
 

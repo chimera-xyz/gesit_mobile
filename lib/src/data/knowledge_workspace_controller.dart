@@ -464,6 +464,223 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
     }
   }
 
+  Future<KnowledgeHubFolder?> createFolder({
+    required String spaceId,
+    required String name,
+    String? description,
+  }) async {
+    final session = _sessionController.session;
+    if (session == null) {
+      return null;
+    }
+
+    try {
+      final payload = await _apiClient.createKnowledgeFolder(
+        baseUrl: session.apiBaseUrl,
+        cookies: session.cookies,
+        spaceId: spaceId,
+        name: name,
+        description: description,
+      );
+      await _sessionController.syncCookies(payload.cookies);
+      final folder = KnowledgeHubFolder.tryFromJson(
+        _asMap(payload.data['folder']),
+        spaceId,
+      );
+      await refresh();
+      return folder;
+    } on GesitApiException catch (error) {
+      await _handleApiException(error);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<KnowledgeHubDocument?> uploadDocument({
+    required String spaceId,
+    String? sectionId,
+    required String title,
+    String? summary,
+    String? body,
+    required String type,
+    ApiMultipartFilePayload? attachment,
+  }) async {
+    final session = _sessionController.session;
+    if (session == null) {
+      return null;
+    }
+
+    try {
+      final payload = await _apiClient.uploadKnowledgeEntry(
+        baseUrl: session.apiBaseUrl,
+        cookies: session.cookies,
+        spaceId: spaceId,
+        sectionId: sectionId,
+        title: title,
+        summary: summary,
+        body: body,
+        type: type,
+        attachment: attachment,
+      );
+      await _sessionController.syncCookies(payload.cookies);
+      final document = KnowledgeHubDocument.tryFromJson(
+        _asMap(payload.data['document']),
+        session.apiBaseUrl,
+      );
+      if (document != null) {
+        _upsertDocument(document);
+      }
+      await refresh();
+      return document;
+    } on GesitApiException catch (error) {
+      await _handleApiException(error);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<KnowledgeHubDocument?> updateDocument({
+    required String documentId,
+    String? sectionId,
+    String? title,
+    String? summary,
+    String? body,
+    String? type,
+  }) async {
+    final session = _sessionController.session;
+    if (session == null) {
+      return null;
+    }
+
+    try {
+      final payload = await _apiClient.updateKnowledgeEntry(
+        baseUrl: session.apiBaseUrl,
+        cookies: session.cookies,
+        entryId: documentId,
+        sectionId: sectionId,
+        title: title,
+        summary: summary,
+        body: body,
+        type: type,
+      );
+      await _sessionController.syncCookies(payload.cookies);
+      final document = KnowledgeHubDocument.tryFromJson(
+        _asMap(payload.data['document']),
+        session.apiBaseUrl,
+      );
+      if (document != null) {
+        _upsertDocument(document);
+      }
+      await refresh();
+      return document;
+    } on GesitApiException catch (error) {
+      await _handleApiException(error);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> deleteDocument(String documentId) async {
+    final session = _sessionController.session;
+    if (session == null || documentId.trim().isEmpty) {
+      return;
+    }
+
+    try {
+      final payload = await _apiClient.deleteKnowledgeEntry(
+        baseUrl: session.apiBaseUrl,
+        cookies: session.cookies,
+        entryId: documentId,
+      );
+      await _sessionController.syncCookies(payload.cookies);
+      _documents = _documents
+          .where((document) => document.id != documentId)
+          .toList(growable: false);
+      await refresh();
+    } on GesitApiException catch (error) {
+      await _handleApiException(error);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<KnowledgeHubShare> createShareLink(String documentId) async {
+    final session = _sessionController.session;
+    if (session == null || documentId.trim().isEmpty) {
+      throw const GesitApiException('Sesi login belum tersedia.');
+    }
+
+    try {
+      final payload = await _apiClient.createKnowledgeShare(
+        baseUrl: session.apiBaseUrl,
+        cookies: session.cookies,
+        entryId: documentId,
+      );
+      await _sessionController.syncCookies(payload.cookies);
+      return KnowledgeHubShare.fromJson(_asMap(payload.data['share']));
+    } on GesitApiException catch (error) {
+      await _handleApiException(error);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<KnowledgeHubDocument> resolveShareToken(String token) async {
+    final session = _sessionController.session;
+    if (session == null || token.trim().isEmpty) {
+      throw const GesitApiException('Sesi login belum tersedia.');
+    }
+
+    try {
+      final payload = await _apiClient.resolveKnowledgeShare(
+        baseUrl: session.apiBaseUrl,
+        cookies: session.cookies,
+        token: token.trim(),
+      );
+      await _sessionController.syncCookies(payload.cookies);
+      final document = KnowledgeHubDocument.fromJson(
+        _asMap(payload.data['document']),
+        session.apiBaseUrl,
+      );
+      _upsertDocument(document);
+      return document;
+    } on GesitApiException catch (error) {
+      await _handleApiException(error);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<BinaryApiPayload> fetchDocumentPreview(String documentId) async {
+    final session = _sessionController.session;
+    if (session == null || documentId.trim().isEmpty) {
+      throw const GesitApiException('Sesi login belum tersedia.');
+    }
+
+    final payload = await _apiClient.fetchKnowledgeEntryPreview(
+      baseUrl: session.apiBaseUrl,
+      cookies: session.cookies,
+      entryId: documentId,
+    );
+    await _sessionController.syncCookies(payload.cookies);
+    return payload;
+  }
+
+  Future<BinaryApiPayload> downloadDocument(String documentId) async {
+    final session = _sessionController.session;
+    if (session == null || documentId.trim().isEmpty) {
+      throw const GesitApiException('Sesi login belum tersedia.');
+    }
+
+    final payload = await _apiClient.downloadKnowledgeEntry(
+      baseUrl: session.apiBaseUrl,
+      cookies: session.cookies,
+      entryId: documentId,
+    );
+    await _sessionController.syncCookies(payload.cookies);
+    return payload;
+  }
+
   void _applyHubPayload(
     Map<String, dynamic> payload, {
     required String baseUrl,
@@ -539,6 +756,23 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
     _documents = List<KnowledgeHubDocument>.unmodifiable(documents);
   }
 
+  void _upsertDocument(KnowledgeHubDocument document) {
+    if (document.id.isEmpty) {
+      return;
+    }
+
+    final documents = List<KnowledgeHubDocument>.from(_documents);
+    final index = documents.indexWhere((item) => item.id == document.id);
+    if (index >= 0) {
+      documents[index] = document;
+    } else {
+      documents.insert(0, document);
+    }
+    documents.sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+    _documents = List<KnowledgeHubDocument>.unmodifiable(documents);
+    notifyListeners();
+  }
+
   Future<void> _handleApiException(GesitApiException error) async {
     if (error.statusCode == 401) {
       _spaces = const <KnowledgeHubSpace>[];
@@ -564,6 +798,7 @@ class KnowledgeHubSpace {
     required this.kind,
     required this.entryCount,
     required this.folders,
+    this.defaultSectionId,
   });
 
   final String id;
@@ -573,6 +808,7 @@ class KnowledgeHubSpace {
   final String kind;
   final int entryCount;
   final List<KnowledgeHubFolder> folders;
+  final String? defaultSectionId;
 
   factory KnowledgeHubSpace.fromJson(Map<String, dynamic> json) {
     final id = _normalizedString(json['id']) ?? '';
@@ -583,6 +819,7 @@ class KnowledgeHubSpace {
       iconKey: _normalizedString(json['icon']) ?? 'folder',
       kind: _normalizedString(json['kind']) ?? '',
       entryCount: _intValue(json['entry_count']),
+      defaultSectionId: _normalizedString(json['default_section_id']),
       folders: _asList(json['sections'])
           .map((section) => KnowledgeHubFolder.fromJson(_asMap(section), id))
           .where((folder) => folder.id.isNotEmpty)
@@ -618,6 +855,43 @@ class KnowledgeHubFolder {
       entryCount: _intValue(json['entry_count']),
     );
   }
+
+  static KnowledgeHubFolder? tryFromJson(
+    Map<String, dynamic> json,
+    String fallbackSpaceId,
+  ) {
+    final folder = KnowledgeHubFolder.fromJson(json, fallbackSpaceId);
+    return folder.id.isEmpty ? null : folder;
+  }
+}
+
+class KnowledgeHubShare {
+  const KnowledgeHubShare({
+    required this.id,
+    required this.entryId,
+    required this.token,
+    required this.accessMode,
+    required this.shareUrl,
+    this.expiresAt,
+  });
+
+  final String id;
+  final String entryId;
+  final String token;
+  final String accessMode;
+  final String shareUrl;
+  final DateTime? expiresAt;
+
+  factory KnowledgeHubShare.fromJson(Map<String, dynamic> json) {
+    return KnowledgeHubShare(
+      id: _normalizedString(json['id']) ?? '',
+      entryId: _normalizedString(json['entry_id']) ?? '',
+      token: _normalizedString(json['token']) ?? '',
+      accessMode: _normalizedString(json['access_mode']) ?? 'internal',
+      shareUrl: _normalizedString(json['share_url']) ?? '',
+      expiresAt: _nullableDateValue(json['expires_at']),
+    );
+  }
 }
 
 class KnowledgeHubDocument {
@@ -640,6 +914,8 @@ class KnowledgeHubDocument {
     this.attachmentUrl,
     this.attachmentName,
     this.attachmentMime,
+    this.attachmentSize,
+    this.attachmentPreviewable = false,
     this.sourceLink,
     this.effectiveDateLabel,
     this.versionLabel,
@@ -663,6 +939,8 @@ class KnowledgeHubDocument {
   final String? attachmentUrl;
   final String? attachmentName;
   final String? attachmentMime;
+  final int? attachmentSize;
+  final bool attachmentPreviewable;
   final String? sourceLink;
   final String? effectiveDateLabel;
   final String? versionLabel;
@@ -691,10 +969,22 @@ class KnowledgeHubDocument {
       attachmentUrl: _absoluteUrl(baseUrl, json['attachment_url']),
       attachmentName: _normalizedString(json['attachment_name']),
       attachmentMime: _normalizedString(json['attachment_mime']),
+      attachmentSize: json['attachment_size'] == null
+          ? null
+          : _intValue(json['attachment_size']),
+      attachmentPreviewable: json['attachment_previewable'] == true,
       sourceLink: _absoluteUrl(baseUrl, json['source_link']),
       effectiveDateLabel: _normalizedString(json['effective_date_label']),
       versionLabel: _normalizedString(json['version_label']),
     );
+  }
+
+  static KnowledgeHubDocument? tryFromJson(
+    Map<String, dynamic> json,
+    String baseUrl,
+  ) {
+    final document = KnowledgeHubDocument.fromJson(json, baseUrl);
+    return document.id.isEmpty ? null : document;
   }
 
   KnowledgeHubDocument copyWith({bool? isBookmarked}) {
@@ -717,6 +1007,8 @@ class KnowledgeHubDocument {
       attachmentUrl: attachmentUrl,
       attachmentName: attachmentName,
       attachmentMime: attachmentMime,
+      attachmentSize: attachmentSize,
+      attachmentPreviewable: attachmentPreviewable,
       sourceLink: sourceLink,
       effectiveDateLabel: effectiveDateLabel,
       versionLabel: versionLabel,
@@ -916,6 +1208,15 @@ int _intValue(Object? value) {
 DateTime _dateValue(Object? value) {
   return DateTime.tryParse('${value ?? ''}') ??
       DateTime.fromMillisecondsSinceEpoch(0);
+}
+
+DateTime? _nullableDateValue(Object? value) {
+  final normalized = _normalizedString(value);
+  if (normalized == null) {
+    return null;
+  }
+
+  return DateTime.tryParse(normalized);
 }
 
 String _normalizeIntentText(String value) {

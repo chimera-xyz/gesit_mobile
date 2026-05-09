@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'data/app_session_controller.dart';
+import 'data/app_link_controller.dart';
 import 'data/app_update_controller.dart';
 import 'data/connection_status_controller.dart';
 import 'data/gesit_api_client.dart';
@@ -24,6 +25,7 @@ class GesitApp extends StatefulWidget {
 
 class _GesitAppState extends State<GesitApp> with WidgetsBindingObserver {
   late final AppSessionController _sessionController;
+  late final AppLinkController _appLinkController;
   late final AppUpdateController _appUpdateController;
   late final ConnectionStatusController _connectionStatusController;
   bool _openingComplete = false;
@@ -33,6 +35,7 @@ class _GesitAppState extends State<GesitApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _connectionStatusController = ConnectionStatusController();
+    _appLinkController = AppLinkController()..bootstrap();
     _sessionController = AppSessionController(apiClient: GesitApiClient());
     _sessionController.addListener(_syncConnectionMonitor);
     unawaited(_sessionController.bootstrap());
@@ -56,6 +59,7 @@ class _GesitAppState extends State<GesitApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _sessionController.removeListener(_syncConnectionMonitor);
     _connectionStatusController.dispose();
+    _appLinkController.dispose();
     _appUpdateController.dispose();
     _sessionController.dispose();
     super.dispose();
@@ -115,6 +119,7 @@ class _GesitAppState extends State<GesitApp> with WidgetsBindingObserver {
             child: GesitShell(
               key: const ValueKey('shell'),
               sessionController: _sessionController,
+              appLinkController: _appLinkController,
             ),
           );
         } else {

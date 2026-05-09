@@ -745,6 +745,162 @@ class GesitApiClient {
     );
   }
 
+  Future<JsonApiPayload> createKnowledgeFolder({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String spaceId,
+    required String name,
+    String? description,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub/spaces/$spaceId/folders',
+      cookies: cookies,
+      body: {'name': name, if (description != null) 'description': description},
+    );
+  }
+
+  Future<JsonApiPayload> createKnowledgeShare({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String entryId,
+    String accessMode = 'internal',
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub/entries/$entryId/share',
+      cookies: cookies,
+      body: {'access_mode': accessMode},
+    );
+  }
+
+  Future<JsonApiPayload> resolveKnowledgeShare({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String token,
+  }) {
+    return _getJson(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub/shares/$token',
+      cookies: cookies,
+    );
+  }
+
+  Future<BinaryApiPayload> fetchKnowledgeEntryPreview({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String entryId,
+  }) {
+    return _getBinary(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub/entries/$entryId/preview',
+      cookies: cookies,
+    );
+  }
+
+  Future<BinaryApiPayload> downloadKnowledgeEntry({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String entryId,
+  }) {
+    return _getBinary(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub/entries/$entryId/download',
+      cookies: cookies,
+    );
+  }
+
+  Future<JsonApiPayload> uploadKnowledgeEntry({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String spaceId,
+    String? sectionId,
+    required String title,
+    String? summary,
+    String? body,
+    required String type,
+    ApiMultipartFilePayload? attachment,
+  }) async {
+    final request = http.MultipartRequest(
+      'POST',
+      _buildUri(baseUrl, '/api/knowledge-hub/spaces/$spaceId/entries'),
+    );
+    request.headers.addAll(_headersWithCookies(_requestHeaders, cookies));
+    request.fields['title'] = title;
+    request.fields['type'] = type;
+    if (sectionId != null && sectionId.trim().isNotEmpty) {
+      request.fields['knowledge_section_id'] = sectionId.trim();
+    }
+    if (summary != null && summary.trim().isNotEmpty) {
+      request.fields['summary'] = summary.trim();
+    }
+    if (body != null && body.trim().isNotEmpty) {
+      request.fields['body'] = body.trim();
+    }
+
+    if (attachment != null) {
+      final mediaType = _parseMediaType(attachment.contentType);
+      if (attachment.bytes != null) {
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'attachment',
+            attachment.bytes!,
+            filename: attachment.fileName,
+            contentType: mediaType,
+          ),
+        );
+      } else if (attachment.path != null &&
+          attachment.path!.trim().isNotEmpty) {
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'attachment',
+            attachment.path!,
+            filename: attachment.fileName,
+            contentType: mediaType,
+          ),
+        );
+      }
+    }
+
+    return _sendMultipartRequest(request, cookies: cookies);
+  }
+
+  Future<JsonApiPayload> updateKnowledgeEntry({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String entryId,
+    String? sectionId,
+    String? title,
+    String? summary,
+    String? body,
+    String? type,
+  }) {
+    return _patchJson(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub/entries/$entryId',
+      cookies: cookies,
+      body: {
+        if (sectionId != null) 'knowledge_section_id': sectionId,
+        if (title != null) 'title': title,
+        if (summary != null) 'summary': summary,
+        if (body != null) 'body': body,
+        if (type != null) 'type': type,
+      },
+    );
+  }
+
+  Future<JsonApiPayload> deleteKnowledgeEntry({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String entryId,
+  }) {
+    return _deleteJson(
+      baseUrl: baseUrl,
+      path: '/api/knowledge-hub/entries/$entryId',
+      cookies: cookies,
+    );
+  }
+
   Future<JsonApiPayload> runKnowledgeConversationAction({
     required String baseUrl,
     required Map<String, String> cookies,
@@ -1449,37 +1605,12 @@ class GesitApiClient {
     required Map<String, dynamic> formData,
     required Map<String, ApiMultipartFilePayload> files,
   }) async {
-    formData.forEach((fieldId, value) {
-      if (value == null) {
-        return;
-      }
-    });
-
     for (final entry in formData.entries) {
-      final fieldId = entry.key;
-      final value = entry.value;
-
-      if (value is Iterable) {
-        for (final item in value) {
-          final normalized = _stringifyFieldValue(item);
-          if (normalized == null || normalized.isEmpty) {
-            continue;
-          }
-
-          request.files.add(
-            http.MultipartFile.fromString('form_data[$fieldId][]', normalized),
-          );
-        }
-
-        return;
-      }
-
-      final normalized = _stringifyFieldValue(value);
-      if (normalized == null) {
-        return;
-      }
-
-      request.fields['form_data[$fieldId]'] = normalized;
+      _appendMultipartField(
+        request: request,
+        key: 'form_data[${entry.key}]',
+        value: entry.value,
+      );
     }
 
     for (final entry in files.entries) {
@@ -1507,6 +1638,48 @@ class GesitApiClient {
         );
       }
     }
+  }
+
+  void _appendMultipartField({
+    required http.MultipartRequest request,
+    required String key,
+    required Object? value,
+  }) {
+    if (value == null) {
+      return;
+    }
+
+    if (value is Map) {
+      for (final entry in value.entries) {
+        _appendMultipartField(
+          request: request,
+          key: '$key[${entry.key}]',
+          value: entry.value,
+        );
+      }
+      return;
+    }
+
+    if (value is Iterable && value is! String) {
+      var index = 0;
+
+      for (final item in value) {
+        _appendMultipartField(
+          request: request,
+          key: '$key[$index]',
+          value: item,
+        );
+        index += 1;
+      }
+      return;
+    }
+
+    final normalized = _stringifyFieldValue(value);
+    if (normalized == null || normalized.isEmpty) {
+      return;
+    }
+
+    request.fields[key] = normalized;
   }
 
   String? _stringifyFieldValue(Object? value) {

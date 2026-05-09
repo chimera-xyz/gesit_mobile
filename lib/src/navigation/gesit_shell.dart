@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../data/app_session_controller.dart';
+import '../data/app_link_controller.dart';
 import '../data/chat_call_media_engine.dart';
 import '../data/chat_workspace_controller.dart';
 import '../data/feed_controller.dart';
@@ -31,9 +32,14 @@ import '../widgets/brand_widgets.dart';
 import '../widgets/notification_center_sheet.dart';
 
 class GesitShell extends StatefulWidget {
-  const GesitShell({super.key, required this.sessionController});
+  const GesitShell({
+    super.key,
+    required this.sessionController,
+    required this.appLinkController,
+  });
 
   final AppSessionController sessionController;
+  final AppLinkController appLinkController;
 
   @override
   State<GesitShell> createState() => _GesitShellState();
@@ -63,6 +69,7 @@ class _GesitShellState extends State<GesitShell>
     _notificationController = NotificationCenterController(
       sessionController: widget.sessionController,
     );
+    widget.appLinkController.addListener(_handleAppLinkChanged);
     _notificationOpenRequestSubscription = _notificationController.openRequests
         .listen((notification) {
           unawaited(_handleNotificationOpenRequest(notification));
@@ -91,6 +98,7 @@ class _GesitShellState extends State<GesitShell>
     _syncModuleControllers(_currentModule);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_primeStartupControllers());
+      _handleAppLinkChanged();
     });
     _tabTransitionController =
         AnimationController(
@@ -127,6 +135,7 @@ class _GesitShellState extends State<GesitShell>
 
   @override
   void dispose() {
+    widget.appLinkController.removeListener(_handleAppLinkChanged);
     _notificationOpenRequestSubscription?.cancel();
     _chatController.dispose();
     _workspaceController.dispose();
@@ -245,6 +254,34 @@ class _GesitShellState extends State<GesitShell>
         openDocuments: true,
       ),
     );
+  }
+
+  void _openSharedKnowledgeDocument(String token) {
+    pushBrandedRoute(
+      context,
+      KnowledgeWorkspaceScreen(
+        sessionController: widget.sessionController,
+        openDocuments: true,
+        initialShareToken: token,
+      ),
+    );
+  }
+
+  void _handleAppLinkChanged() {
+    final rawLink = widget.appLinkController.pendingLink;
+    if (rawLink == null || rawLink.trim().isEmpty || !mounted) {
+      return;
+    }
+
+    final uri = Uri.tryParse(rawLink);
+    final path = uri?.path.isNotEmpty == true ? uri!.path : rawLink;
+    final shareToken = _shareTokenFromPath(path);
+    if (shareToken == null) {
+      return;
+    }
+
+    widget.appLinkController.consume(rawLink);
+    _openSharedKnowledgeDocument(shareToken);
   }
 
   void _openAiAssist() {
@@ -596,6 +633,12 @@ class _GesitShellState extends State<GesitShell>
 
     final uri = Uri.tryParse(normalizedLink);
     final path = uri?.path.isNotEmpty == true ? uri!.path : normalizedLink;
+    final shareToken = _shareTokenFromPath(path);
+    if (shareToken != null) {
+      _openSharedKnowledgeDocument(shareToken);
+      return true;
+    }
+
     final feedPostId = _feedPostIdFromPath(path);
     if (feedPostId != null) {
       try {
@@ -717,6 +760,16 @@ class _GesitShellState extends State<GesitShell>
     }
 
     return submissionId;
+  }
+
+  String? _shareTokenFromPath(String path) {
+    final match = RegExp(r'/share/docs/([^/?#]+)').firstMatch(path);
+    final token = match?.group(1)?.trim();
+    if (token == null || token.isEmpty) {
+      return null;
+    }
+
+    return token;
   }
 
   String? _feedPostIdFromPath(String path) {

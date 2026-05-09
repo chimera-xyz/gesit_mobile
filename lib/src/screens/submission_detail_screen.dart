@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../data/demo_data.dart';
 import '../data/workspace_data_controller.dart';
@@ -393,7 +394,10 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                           index < _detailFields.length;
                           index++
                         ) ...[
-                          _FieldRow(field: _detailFields[index]),
+                          if (_detailFields[index].isProcurementItems)
+                            _ProcurementItemsField(field: _detailFields[index])
+                          else
+                            _FieldRow(field: _detailFields[index]),
                           if (index != _detailFields.length - 1)
                             const Divider(height: 1),
                         ],
@@ -799,6 +803,56 @@ class _TimelineRow extends StatelessWidget {
   }
 }
 
+class _ProcurementItemsField extends StatelessWidget {
+  const _ProcurementItemsField({required this.field});
+
+  final SubmissionField field;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = _rowsFor(field.procurementItems);
+
+    return Column(
+      children: [
+        for (var index = 0; index < rows.length; index++) ...[
+          _FieldRow(field: rows[index]),
+          if (index != rows.length - 1) const Divider(height: 1),
+        ],
+      ],
+    );
+  }
+
+  List<SubmissionField> _rowsFor(List<ProcurementSubmissionItem> items) {
+    final rows = <SubmissionField>[];
+
+    for (var index = 0; index < items.length; index++) {
+      final item = items[index];
+      final prefix = items.length > 1 ? 'Item ${index + 1} ' : '';
+
+      rows.addAll([
+        SubmissionField(
+          label: '${prefix}Nama Barang',
+          value: item.description.trim().isEmpty ? '-' : item.description,
+        ),
+        SubmissionField(
+          label: '${prefix}Spesifikasi',
+          value: item.specifications.trim().isEmpty ? '-' : item.specifications,
+        ),
+        SubmissionField(
+          label: '${prefix}Quantity',
+          value: _formatQuantity(item.quantity),
+        ),
+        SubmissionField(
+          label: '${prefix}Harga',
+          value: _formatRupiah(item.unitPrice),
+        ),
+      ]);
+    }
+
+    return rows;
+  }
+}
+
 class _FieldRow extends StatelessWidget {
   const _FieldRow({required this.field});
 
@@ -834,6 +888,22 @@ class _FieldRow extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatRupiah(num value) {
+  return NumberFormat.currency(
+    locale: 'id_ID',
+    symbol: 'Rp',
+    decimalDigits: 0,
+  ).format(value);
+}
+
+String _formatQuantity(num value) {
+  if (value % 1 == 0) {
+    return value.toInt().toString();
+  }
+
+  return value.toStringAsFixed(2);
 }
 
 class _SignatureApprovalSheet extends StatefulWidget {

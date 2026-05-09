@@ -266,6 +266,7 @@ enum FormFieldType {
   file,
   number,
   email,
+  procurementItems,
 }
 
 enum AppNotificationType {
@@ -522,6 +523,8 @@ class FormFieldConfig {
     this.readOnly = false,
     this.initialValue,
     this.options = const [],
+    this.minItems = 1,
+    this.maxItems = 2,
   });
 
   final String id;
@@ -533,6 +536,8 @@ class FormFieldConfig {
   final bool readOnly;
   final String? initialValue;
   final List<String> options;
+  final int minItems;
+  final int maxItems;
 }
 
 class HelpdeskTicket {
@@ -1149,11 +1154,36 @@ class SubmissionTimelineStep {
   final bool requiresSignature;
 }
 
+class ProcurementSubmissionItem {
+  const ProcurementSubmissionItem({
+    required this.description,
+    required this.quantity,
+    required this.unitPrice,
+    required this.amount,
+    this.specifications = '',
+  });
+
+  final String description;
+  final num quantity;
+  final num unitPrice;
+  final num amount;
+  final String specifications;
+
+  bool get hasSpecifications => specifications.trim().isNotEmpty;
+}
+
 class SubmissionField {
-  const SubmissionField({required this.label, required this.value});
+  const SubmissionField({
+    required this.label,
+    required this.value,
+    this.procurementItems = const <ProcurementSubmissionItem>[],
+  });
 
   final String label;
   final String value;
+  final List<ProcurementSubmissionItem> procurementItems;
+
+  bool get isProcurementItems => procurementItems.isNotEmpty;
 }
 
 class SubmissionAction {

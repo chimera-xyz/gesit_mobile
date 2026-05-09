@@ -210,6 +210,57 @@ void main() {
     expect(payload.fileName, 'GESIT_42.pdf');
     expect(payload.cookies['gesit_session'], 'fresh-cookie');
   });
+
+  test(
+    'create submission sends procurement items as nested multipart fields',
+    () async {
+      late http.Request capturedRequest;
+
+      final client = GesitApiClient(
+        httpClient: MockClient((request) async {
+          capturedRequest = request;
+          return _jsonResponse({
+            'success': true,
+            'submission': {'id': 42},
+          }, statusCode: 201);
+        }),
+        browserManagedCookies: false,
+      );
+
+      await client.createSubmission(
+        baseUrl: 'http://127.0.0.1:8000',
+        cookies: const {'gesit_session': 'old-cookie'},
+        formId: '7',
+        formData: const {
+          'item_type': 'Hardware',
+          'items': [
+            {
+              'description': 'SSD 512GB',
+              'quantity': 1,
+              'unit_price': 1800000,
+              'specifications': 'NVMe Gen 4 untuk workstation.',
+            },
+          ],
+        },
+      );
+
+      final body = utf8.decode(capturedRequest.bodyBytes);
+
+      expect(capturedRequest.method, 'POST');
+      expect(capturedRequest.url.path, '/api/form-submissions');
+      expect(capturedRequest.headers['cookie'], contains('old-cookie'));
+      expect(body, contains('name="form_id"'));
+      expect(body, contains('7'));
+      expect(body, contains('name="form_data[items][0][description]"'));
+      expect(body, contains('SSD 512GB'));
+      expect(body, contains('name="form_data[items][0][quantity]"'));
+      expect(body, contains('1'));
+      expect(body, contains('name="form_data[items][0][unit_price]"'));
+      expect(body, contains('1800000'));
+      expect(body, contains('name="form_data[items][0][specifications]"'));
+      expect(body, contains('NVMe Gen 4 untuk workstation.'));
+    },
+  );
 }
 
 http.Response _jsonResponse(Map<String, dynamic> body, {int statusCode = 200}) {

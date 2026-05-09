@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../models/app_models.dart';
 import '../models/session_models.dart';
@@ -500,6 +501,8 @@ class WorkspaceDataController extends ChangeNotifier {
       readOnly: rawField['readonly'] == true || rawField['readOnly'] == true,
       initialValue: initialValue,
       options: _normalizeOptions(rawField['options']),
+      minItems: _intValue(rawField['min_items']) ?? 1,
+      maxItems: _intValue(rawField['max_items']) ?? 2,
     );
   }
 
@@ -654,6 +657,23 @@ class WorkspaceDataController extends ChangeNotifier {
         continue;
       }
 
+      final rawType = (_stringValue(rawField['type']) ?? '').toLowerCase();
+      if (rawType == 'procurement_items') {
+        final procurementItems = _procurementSubmissionItems(formData[fieldId]);
+        if (procurementItems.isEmpty) {
+          continue;
+        }
+
+        detailFields.add(
+          SubmissionField(
+            label: _stringValue(rawField['label']) ?? fieldId,
+            value: _procurementItemsSummary(procurementItems),
+            procurementItems: procurementItems,
+          ),
+        );
+        continue;
+      }
+
       final displayValue = _formatSubmissionFieldValue(
         rawField: rawField,
         value: formData[fieldId],
@@ -732,6 +752,20 @@ class WorkspaceDataController extends ChangeNotifier {
       }
 
       if ((_stringValue(rawField['type']) ?? '').toLowerCase() == 'file') {
+        continue;
+      }
+
+      if ((_stringValue(rawField['type']) ?? '').toLowerCase() ==
+          'procurement_items') {
+        final procurementItems = _procurementSubmissionItems(formData[fieldId]);
+        if (procurementItems.isEmpty) {
+          continue;
+        }
+
+        summaryParts.add(_procurementItemsSummary(procurementItems));
+        if (summaryParts.length == 2) {
+          break;
+        }
         continue;
       }
 
@@ -864,6 +898,8 @@ class WorkspaceDataController extends ChangeNotifier {
         return FormFieldType.checkbox;
       case 'textarea':
         return FormFieldType.multiline;
+      case 'procurement_items':
+        return FormFieldType.procurementItems;
       default:
         return FormFieldType.text;
     }
@@ -1065,6 +1101,13 @@ class WorkspaceDataController extends ChangeNotifier {
     }
 
     if (value is List) {
+      if (value.every((item) => item is Map)) {
+        final procurementItems = _procurementSubmissionItems(value);
+        return procurementItems.isEmpty
+            ? null
+            : _procurementItemsPlainText(procurementItems);
+      }
+
       final items = value
           .map((item) => item.toString().trim())
           .where((item) => item.isNotEmpty)
@@ -1090,6 +1133,83 @@ class WorkspaceDataController extends ChangeNotifier {
     }
 
     return normalizedValue;
+  }
+
+  List<ProcurementSubmissionItem> _procurementSubmissionItems(Object? value) {
+    if (value is! List) {
+      return const <ProcurementSubmissionItem>[];
+    }
+
+    return value
+        .whereType<Map>()
+        .map((item) {
+          final description =
+              _stringValue(item['description']) ??
+              _stringValue(item['name']) ??
+              '';
+          final specifications =
+              _stringValue(item['specifications']) ??
+              _stringValue(item['specification']) ??
+              '';
+          final quantity = _numValue(item['quantity']) ?? 0;
+          final unitPrice =
+              _numValue(item['unit_price']) ?? _numValue(item['price']) ?? 0;
+          final amount = _numValue(item['amount']) ?? (quantity * unitPrice);
+
+          if (description.isEmpty &&
+              specifications.isEmpty &&
+              quantity <= 0 &&
+              unitPrice <= 0 &&
+              amount <= 0) {
+            return null;
+          }
+
+          return ProcurementSubmissionItem(
+            description: description,
+            quantity: quantity,
+            unitPrice: unitPrice,
+            amount: amount,
+            specifications: specifications,
+          );
+        })
+        .whereType<ProcurementSubmissionItem>()
+        .toList(growable: false);
+  }
+
+  String _procurementItemsSummary(List<ProcurementSubmissionItem> items) {
+    final firstName = items.first.description.trim().isNotEmpty
+        ? items.first.description.trim()
+        : 'Item pengadaan';
+    final countLabel = items.length == 1 ? '1 item' : '${items.length} item';
+    final total = items.fold<num>(0, (sum, item) => sum + item.amount);
+
+    if (total > 0) {
+      return '$firstName • $countLabel • ${_formatCurrency(total)}';
+    }
+
+    return '$firstName • $countLabel';
+  }
+
+  String _procurementItemsPlainText(List<ProcurementSubmissionItem> items) {
+    return items
+        .asMap()
+        .entries
+        .map((entry) {
+          final index = entry.key + 1;
+          final item = entry.value;
+          final name = item.description.trim().isNotEmpty
+              ? item.description.trim()
+              : 'Item $index';
+          final priceLine =
+              'Qty ${_formatQuantity(item.quantity)} x ${_formatCurrency(item.unitPrice)} = ${_formatCurrency(item.amount)}';
+
+          if (!item.hasSpecifications) {
+            return '$index. $name\n$priceLine';
+          }
+
+          return '$index. $name\nSpesifikasi: ${item.specifications}\n$priceLine';
+        })
+        .join('\n\n');
   }
 
   String? _resolveAbsoluteUrl(String baseUrl, String? rawUrl) {
@@ -1179,6 +1299,33 @@ class WorkspaceDataController extends ChangeNotifier {
 
     final normalized = _stringValue(value);
     return normalized == null ? null : int.tryParse(normalized);
+  }
+
+  num? _numValue(Object? value) {
+    if (value is num) {
+      return value;
+    }
+
+    final normalized = _stringValue(
+      value,
+    )?.replaceAll('.', '').replaceAll(',', '.');
+    return normalized == null ? null : num.tryParse(normalized);
+  }
+
+  String _formatCurrency(num value) {
+    return NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp',
+      decimalDigits: 0,
+    ).format(value);
+  }
+
+  String _formatQuantity(num value) {
+    if (value % 1 == 0) {
+      return value.toInt().toString();
+    }
+
+    return value.toStringAsFixed(2);
   }
 
   DateTime? _dateTimeValue(Object? value) {

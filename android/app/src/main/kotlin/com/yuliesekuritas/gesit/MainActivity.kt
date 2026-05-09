@@ -19,10 +19,22 @@ import java.io.File
 
 class MainActivity : FlutterFragmentActivity() {
     private var foregroundAlertPlayer: MediaPlayer? = null
+    private var deepLinkChannel: MethodChannel? = null
+    private var initialDeepLink: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initialDeepLink = extractDeepLink(intent)
         ensureGooglePlayServicesAvailable()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val deepLink = extractDeepLink(intent)
+        if (deepLink != null) {
+            deepLinkChannel?.invokeMethod("onDeepLink", deepLink)
+        }
     }
 
     override fun onResume() {
@@ -58,11 +70,56 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        deepLinkChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "gesit/deep_links",
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getInitialLink" -> {
+                        result.success(initialDeepLink)
+                        initialDeepLink = null
+                    }
+
+                    else -> result.notImplemented()
+                }
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "gesit/share",
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "shareText" -> {
+                    val text = call.argument<String>("text")?.trim()
+                    val subject = call.argument<String>("subject")?.trim()
+                    if (text.isNullOrEmpty()) {
+                        result.error("invalid_args", "Share text is required.", null)
+                        return@setMethodCallHandler
+                    }
+
+                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                        if (!subject.isNullOrEmpty()) {
+                            putExtra(Intent.EXTRA_SUBJECT, subject)
+                        }
+                    }
+                    startActivity(Intent.createChooser(sendIntent, subject ?: "Share"))
+                    result.success(null)
+                }
+
+                else -> result.notImplemented()
+            }
+        }
     }
 
     override fun onDestroy() {
         foregroundAlertPlayer?.release()
         foregroundAlertPlayer = null
+        deepLinkChannel = null
         super.onDestroy()
     }
 
@@ -183,5 +240,13 @@ class MainActivity : FlutterFragmentActivity() {
         if (availability.isUserResolvableError(status)) {
             availability.makeGooglePlayServicesAvailable(this)
         }
+    }
+
+    private fun extractDeepLink(intent: Intent?): String? {
+        if (intent?.action != Intent.ACTION_VIEW) {
+            return null
+        }
+
+        return intent.dataString?.trim()?.takeIf { it.isNotEmpty() }
     }
 }

@@ -1,22 +1,31 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/services.dart';
+import 'package:mime/mime.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../data/app_session_controller.dart';
+import '../data/gesit_api_client.dart';
 import '../data/knowledge_workspace_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
+import 'knowledge_document_preview_screen.dart';
 
 class KnowledgeWorkspaceScreen extends StatefulWidget {
   const KnowledgeWorkspaceScreen({
     super.key,
     required this.sessionController,
     this.openDocuments = false,
+    this.initialShareToken,
   });
 
   final AppSessionController sessionController;
   final bool openDocuments;
+  final String? initialShareToken;
 
   @override
   State<KnowledgeWorkspaceScreen> createState() =>
@@ -27,9 +36,20 @@ enum _KnowledgeWorkspaceView { assistant, documents }
 
 enum _DocumentHubFilter { all, folders, files, bookmarked }
 
-enum _FileActionMenuItem { details, favorite }
+enum _FileActionMenuItem {
+  preview,
+  download,
+  share,
+  rename,
+  move,
+  details,
+  favorite,
+  delete,
+}
 
 class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
+  static const MethodChannel _shareChannel = MethodChannel('gesit/share');
+
   static const List<_AssistantPrompt> _prompts = [
     _AssistantPrompt(
       title: 'Ringkas SOP approval pengadaan',
@@ -66,6 +86,7 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
   _DocumentHubFilter _documentFilter = _DocumentHubFilter.all;
   String? _selectedSpaceId;
   String? _selectedFolderId;
+  bool _handledInitialShareToken = false;
 
   @override
   void initState() {
@@ -103,6 +124,7 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
     }
 
     setState(() {});
+    _openInitialShareIfNeeded();
     if (_currentView == _KnowledgeWorkspaceView.assistant &&
         (_messages.isNotEmpty || _isResponding)) {
       _scrollToBottom();
@@ -196,22 +218,15 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
   String get _documentQuery =>
       _documentSearchController.text.trim().toLowerCase();
 
-  List<_KnowledgeFolder> get _allFolders {
-    final folders = <_KnowledgeFolder>[];
-    for (final space in _spaces) {
-      folders.addAll(space.folders);
-    }
-    return folders;
-  }
-
   List<_KnowledgeFolder> get _visibleFolders {
     if (_documentFilter == _DocumentHubFilter.files ||
         _documentFilter == _DocumentHubFilter.bookmarked ||
-        _selectedFolderId != null) {
+        _selectedFolderId != null ||
+        _selectedSpaceId == null) {
       return const [];
     }
 
-    final folders = _selectedSpace?.folders ?? _allFolders;
+    final folders = _selectedSpace?.folders ?? const <_KnowledgeFolder>[];
 
     return folders.where((folder) {
       if (_documentQuery.isEmpty) {
@@ -223,6 +238,31 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
         folder.name,
         space?.name ?? '',
         ..._documentsForFolder(folder.id).map((file) => file.title),
+      ].join(' ').toLowerCase();
+
+      return haystack.contains(_documentQuery);
+    }).toList();
+  }
+
+  List<_KnowledgeSpace> get _visibleSpaces {
+    if (_selectedSpaceId != null ||
+        _documentFilter == _DocumentHubFilter.files ||
+        _documentFilter == _DocumentHubFilter.bookmarked) {
+      return const [];
+    }
+
+    return _spaces.where((space) {
+      if (_documentQuery.isEmpty) {
+        return true;
+      }
+
+      final haystack = [
+        space.name,
+        space.description,
+        ...space.folders.map((folder) => folder.name),
+        ..._documents
+            .where((file) => file.spaceId == space.id)
+            .map((file) => file.title),
       ].join(' ').toLowerCase();
 
       return haystack.contains(_documentQuery);
@@ -417,23 +457,488 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
   }
 
   Future<void> _handleFileTap(_KnowledgeDocumentFile file) async {
-    final targetUrl = file.attachmentUrl ?? file.sourceLink;
-    if (targetUrl == null || targetUrl.trim().isEmpty) {
+    final document = _findSourceDocumentById(file.id);
+    if (document == null) {
       await _showFileProperties(file);
       return;
     }
 
-    final uri = Uri.tryParse(targetUrl);
-    if (uri == null) {
-      await _showFileProperties(file);
+    _openDocumentPreview(document);
+  }
+
+  void _openDocumentPreview(KnowledgeHubDocument document) {
+    pushBrandedRoute(
+      context,
+      KnowledgeDocumentPreviewScreen(
+        document: document,
+        controller: _controller,
+      ),
+    );
+  }
+
+  KnowledgeHubDocument? _findSourceDocumentById(String fileId) {
+    for (final document in _controller.documents) {
+      if (document.id == fileId) {
+        return document;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _openInitialShareIfNeeded() async {
+    final token = widget.initialShareToken?.trim();
+    if (_handledInitialShareToken ||
+        token == null ||
+        token.isEmpty ||
+        !_controller.loaded) {
       return;
     }
 
-    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!launched && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Dokumen "${file.title}" belum bisa dibuka.')),
+    _handledInitialShareToken = true;
+
+    try {
+      final document = await _controller.resolveShareToken(token);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _currentView = _KnowledgeWorkspaceView.documents;
+        _selectedSpaceId = document.spaceId;
+        _selectedFolderId = document.folderId;
+      });
+      _openDocumentPreview(document);
+    } on GesitApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _shareFile(_KnowledgeDocumentFile file) async {
+    try {
+      final share = await _controller.createShareLink(file.id);
+      if (!mounted) {
+        return;
+      }
+
+      await Clipboard.setData(ClipboardData(text: share.shareUrl));
+      if (!mounted) {
+        return;
+      }
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        builder: (context) => _ShareLinkSheet(
+          title: file.title,
+          shareUrl: share.shareUrl,
+          onNativeShare: () => _shareNative(file.title, share.shareUrl),
+        ),
       );
+    } on GesitApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _shareNative(String title, String shareUrl) async {
+    try {
+      await _shareChannel.invokeMethod<void>('shareText', {
+        'subject': title,
+        'text': shareUrl,
+      });
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: shareUrl));
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Link sudah disalin.')));
+    }
+  }
+
+  Future<void> _downloadFile(_KnowledgeDocumentFile file) async {
+    try {
+      final document = _findSourceDocumentById(file.id);
+      final safeName = _safeDocumentFileName(
+        document?.attachmentName ?? file.title,
+      );
+      final bytes = document?.attachmentUrl == null && document != null
+          ? utf8.encode(document.body)
+          : (await _controller.downloadDocument(file.id)).bytes;
+      final directory = await getApplicationDocumentsDirectory();
+      final downloadsDirectory = Directory('${directory.path}/gesit_downloads');
+      if (!await downloadsDirectory.exists()) {
+        await downloadsDirectory.create(recursive: true);
+      }
+      final target = File('${downloadsDirectory.path}/$safeName');
+      await target.writeAsBytes(bytes, flush: true);
+
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('File tersimpan: ${target.path}')));
+    } on GesitApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Download dokumen belum berhasil.')),
+      );
+    }
+  }
+
+  Future<void> _renameFile(_KnowledgeDocumentFile file) async {
+    final controller = TextEditingController(text: file.title);
+    final nextTitle = await _showSingleInputSheet(
+      title: 'Rename dokumen',
+      label: 'Nama dokumen',
+      controller: controller,
+      submitLabel: 'Simpan',
+    );
+    controller.dispose();
+    if (nextTitle == null || nextTitle.trim().isEmpty) {
+      return;
+    }
+
+    try {
+      await _controller.updateDocument(
+        documentId: file.id,
+        title: nextTitle.trim(),
+      );
+    } on GesitApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _moveFile(_KnowledgeDocumentFile file) async {
+    final targets = _moveTargets;
+    if (targets.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Belum ada folder tujuan.')));
+      return;
+    }
+
+    final target = await showModalBottomSheet<_MoveTarget>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _MoveDocumentSheet(targets: targets),
+    );
+    if (target == null || target.sectionId == file.folderId) {
+      return;
+    }
+
+    try {
+      await _controller.updateDocument(
+        documentId: file.id,
+        sectionId: target.sectionId,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _selectedSpaceId = target.spaceId;
+        _selectedFolderId = target.isRoot ? null : target.sectionId;
+      });
+    } on GesitApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _deleteFile(_KnowledgeDocumentFile file) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus dokumen?'),
+        content: Text('Dokumen "${file.title}" akan dihapus dari hub.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      await _controller.deleteDocument(file.id);
+    } on GesitApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _showCreateFolderSheet() async {
+    final space = _selectedSpace;
+    if (space == null) {
+      _showDocumentHubSnack('Pilih divisi atau folder tujuan dulu.');
+      return;
+    }
+    if (_selectedFolderId != null) {
+      _showDocumentHubSnack('Folder baru dibuat dari level divisi.');
+      return;
+    }
+
+    final nameController = TextEditingController();
+    final descriptionController = TextEditingController();
+    final result = await showModalBottomSheet<_FolderDraft>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _CreateFolderSheet(
+        nameController: nameController,
+        descriptionController: descriptionController,
+      ),
+    );
+    nameController.dispose();
+    descriptionController.dispose();
+    if (result == null) {
+      return;
+    }
+
+    try {
+      final folder = await _controller.createFolder(
+        spaceId: space.id,
+        name: result.name,
+        description: result.description,
+      );
+      if (!mounted || folder == null) {
+        return;
+      }
+      setState(() {
+        _selectedSpaceId = folder.spaceId;
+        _selectedFolderId = folder.id;
+      });
+    } on GesitApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _showUploadDocumentSheet() async {
+    final space = _selectedSpace;
+    if (space == null) {
+      _showDocumentHubSnack('Pilih divisi atau folder tujuan dulu.');
+      return;
+    }
+
+    final picked = await FilePicker.platform.pickFiles(withData: false);
+    final pickedFile = picked?.files.single;
+    if (pickedFile == null || !mounted) {
+      return;
+    }
+
+    final titleController = TextEditingController(
+      text: _titleFromPickedFile(pickedFile.name),
+    );
+    final summaryController = TextEditingController();
+    final draft = await showModalBottomSheet<_UploadDraft>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _UploadDocumentSheet(
+        fileName: pickedFile.name,
+        titleController: titleController,
+        summaryController: summaryController,
+      ),
+    );
+    titleController.dispose();
+    summaryController.dispose();
+    if (draft == null) {
+      return;
+    }
+
+    try {
+      await _controller.uploadDocument(
+        spaceId: space.id,
+        sectionId: _selectedFolderId ?? space.defaultSectionId,
+        title: draft.title,
+        summary: draft.summary,
+        type: 'form',
+        attachment: ApiMultipartFilePayload(
+          fileName: pickedFile.name,
+          path: pickedFile.path,
+          contentType: lookupMimeType(pickedFile.name),
+        ),
+      );
+    } on GesitApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _showCreateDocumentSheet() async {
+    final space = _selectedSpace;
+    if (space == null) {
+      _showDocumentHubSnack('Pilih divisi atau folder tujuan dulu.');
+      return;
+    }
+
+    final titleController = TextEditingController();
+    final bodyController = TextEditingController();
+    final draft = await showModalBottomSheet<_DocumentDraft>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _CreateDocumentSheet(
+        titleController: titleController,
+        bodyController: bodyController,
+      ),
+    );
+    titleController.dispose();
+    bodyController.dispose();
+    if (draft == null) {
+      return;
+    }
+
+    try {
+      await _controller.uploadDocument(
+        spaceId: space.id,
+        sectionId: _selectedFolderId ?? space.defaultSectionId,
+        title: draft.title,
+        body: draft.body,
+        type: 'form',
+      );
+    } on GesitApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<String?> _showSingleInputSheet({
+    required String title,
+    required String label,
+    required TextEditingController controller,
+    required String submitLabel,
+  }) {
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _SingleInputSheet(
+        title: title,
+        label: label,
+        controller: controller,
+        submitLabel: submitLabel,
+      ),
+    );
+  }
+
+  List<_MoveTarget> get _moveTargets {
+    final targets = <_MoveTarget>[];
+    for (final space in _spaces) {
+      final defaultSectionId = space.defaultSectionId;
+      if (defaultSectionId != null && defaultSectionId.isNotEmpty) {
+        targets.add(
+          _MoveTarget(
+            sectionId: defaultSectionId,
+            spaceId: space.id,
+            label: '${space.name} / Root',
+            isRoot: true,
+          ),
+        );
+      }
+      for (final folder in space.folders) {
+        targets.add(
+          _MoveTarget(
+            sectionId: folder.id,
+            spaceId: space.id,
+            label: '${space.name} / ${folder.name}',
+            isRoot: false,
+          ),
+        );
+      }
+    }
+    return targets;
+  }
+
+  void _showDocumentHubSnack(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _showCreateMenuSheet() async {
+    final action = await showModalBottomSheet<_CreateMenuAction>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const _CreateMenuSheet(),
+    );
+
+    switch (action) {
+      case _CreateMenuAction.folder:
+        await _showCreateFolderSheet();
+      case _CreateMenuAction.document:
+        await _showCreateDocumentSheet();
+      case null:
+        return;
+    }
+  }
+
+  Future<void> _showUploadMenuSheet() async {
+    final action = await showModalBottomSheet<_UploadMenuAction>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const _UploadMenuSheet(),
+    );
+
+    switch (action) {
+      case _UploadMenuAction.document:
+      case _UploadMenuAction.file:
+        await _showUploadDocumentSheet();
+      case null:
+        return;
     }
   }
 
@@ -772,6 +1277,28 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
             ],
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _showCreateMenuSheet,
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('Buat'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _showUploadMenuSheet,
+                  icon: const Icon(Icons.upload_file_rounded, size: 18),
+                  label: const Text('Upload'),
+                ),
+              ),
+            ],
+          ),
+        ),
         Expanded(
           child: _controller.isLoading && !_controller.loaded
               ? const _DocumentLoadingState()
@@ -795,11 +1322,18 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
                           : () => _selectSpace(_selectedSpace!.id),
                     ),
                     const SizedBox(height: 18),
+                    if (_visibleSpaces.isNotEmpty) ...[
+                      const _DriveSectionLabel(title: 'Divisi'),
+                      const SizedBox(height: 12),
+                      _DriveSpaceGrid(
+                        spaces: _visibleSpaces,
+                        onTap: _selectSpace,
+                      ),
+                    ],
                     if (_visibleFolders.isNotEmpty) ...[
+                      if (_visibleSpaces.isNotEmpty) const SizedBox(height: 22),
                       _DriveSectionLabel(
-                        title: _selectedSpace == null
-                            ? 'Folders'
-                            : _selectedSpace!.name,
+                        title: _selectedSpace == null ? 'Folders' : 'Folders',
                       ),
                       const SizedBox(height: 12),
                       _DriveFolderGrid(
@@ -818,8 +1352,14 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
                           child: _DriveFileTile(
                             file: file,
                             onTap: () => unawaited(_handleFileTap(file)),
+                            onPreview: () => unawaited(_handleFileTap(file)),
+                            onDownload: () => unawaited(_downloadFile(file)),
+                            onShare: () => unawaited(_shareFile(file)),
+                            onRename: () => unawaited(_renameFile(file)),
+                            onMove: () => unawaited(_moveFile(file)),
                             onShowProperties: () => _showFileProperties(file),
                             onToggleBookmark: () => _toggleBookmark(file.id),
+                            onDelete: () => unawaited(_deleteFile(file)),
                           ),
                         );
                       }),
@@ -836,13 +1376,20 @@ class _KnowledgeWorkspaceScreenState extends State<KnowledgeWorkspaceScreen> {
                           child: _DriveFileTile(
                             file: file,
                             onTap: () => unawaited(_handleFileTap(file)),
+                            onPreview: () => unawaited(_handleFileTap(file)),
+                            onDownload: () => unawaited(_downloadFile(file)),
+                            onShare: () => unawaited(_shareFile(file)),
+                            onRename: () => unawaited(_renameFile(file)),
+                            onMove: () => unawaited(_moveFile(file)),
                             onShowProperties: () => _showFileProperties(file),
                             onToggleBookmark: () => _toggleBookmark(file.id),
+                            onDelete: () => unawaited(_deleteFile(file)),
                           ),
                         );
                       }),
                     ],
-                    if (_visibleFolders.isEmpty &&
+                    if (_visibleSpaces.isEmpty &&
+                        _visibleFolders.isEmpty &&
                         _recentFiles.isEmpty &&
                         _visibleFiles.isEmpty)
                       _DocumentEmptyState(
@@ -1372,18 +1919,115 @@ class _DriveFolderGrid extends StatelessWidget {
   }
 }
 
+class _DriveSpaceGrid extends StatelessWidget {
+  const _DriveSpaceGrid({required this.spaces, required this.onTap});
+
+  final List<_KnowledgeSpace> spaces;
+  final ValueChanged<String> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final crossAxisCount = width >= 640
+            ? 4
+            : width >= 360
+            ? 3
+            : 2;
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: spaces.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.04,
+          ),
+          itemBuilder: (context, index) {
+            final space = spaces[index];
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => onTap(space.id),
+                borderRadius: BorderRadius.circular(22),
+                child: Ink(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: space.accentColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        child: Icon(space.icon, color: space.accentColor),
+                      ),
+                      const Spacer(),
+                      Text(
+                        space.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppColors.ink,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (space.description.trim().isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          space.description,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: AppColors.inkMuted),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
 class _DriveFileTile extends StatelessWidget {
   const _DriveFileTile({
     required this.file,
     required this.onTap,
+    required this.onPreview,
+    required this.onDownload,
+    required this.onShare,
+    required this.onRename,
+    required this.onMove,
     required this.onShowProperties,
     required this.onToggleBookmark,
+    required this.onDelete,
   });
 
   final _KnowledgeDocumentFile file;
   final VoidCallback onTap;
+  final VoidCallback onPreview;
+  final VoidCallback onDownload;
+  final VoidCallback onShare;
+  final VoidCallback onRename;
+  final VoidCallback onMove;
   final VoidCallback onShowProperties;
   final VoidCallback onToggleBookmark;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -1423,33 +2067,85 @@ class _DriveFileTile extends StatelessWidget {
             ),
             onSelected: (value) {
               switch (value) {
+                case _FileActionMenuItem.preview:
+                  onPreview();
+                case _FileActionMenuItem.download:
+                  onDownload();
+                case _FileActionMenuItem.share:
+                  onShare();
+                case _FileActionMenuItem.rename:
+                  onRename();
+                case _FileActionMenuItem.move:
+                  onMove();
                 case _FileActionMenuItem.details:
                   onShowProperties();
                 case _FileActionMenuItem.favorite:
                   onToggleBookmark();
+                case _FileActionMenuItem.delete:
+                  onDelete();
               }
             },
             itemBuilder: (context) => [
               PopupMenuItem<_FileActionMenuItem>(
+                value: _FileActionMenuItem.preview,
+                child: _DriveMenuItem(
+                  icon: Icons.visibility_rounded,
+                  label: 'Preview',
+                ),
+              ),
+              PopupMenuItem<_FileActionMenuItem>(
+                value: _FileActionMenuItem.download,
+                child: _DriveMenuItem(
+                  icon: Icons.download_rounded,
+                  label: 'Download',
+                ),
+              ),
+              PopupMenuItem<_FileActionMenuItem>(
+                value: _FileActionMenuItem.share,
+                child: _DriveMenuItem(
+                  icon: Icons.ios_share_rounded,
+                  label: 'Share link',
+                ),
+              ),
+              PopupMenuItem<_FileActionMenuItem>(
+                value: _FileActionMenuItem.rename,
+                child: _DriveMenuItem(
+                  icon: Icons.drive_file_rename_outline_rounded,
+                  label: 'Rename',
+                ),
+              ),
+              PopupMenuItem<_FileActionMenuItem>(
+                value: _FileActionMenuItem.move,
+                child: _DriveMenuItem(
+                  icon: Icons.drive_file_move_rounded,
+                  label: 'Pindah folder',
+                ),
+              ),
+              PopupMenuItem<_FileActionMenuItem>(
                 value: _FileActionMenuItem.details,
-                child: Text(
-                  'Detail Properties',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppColors.ink,
-                    fontWeight: FontWeight.w700,
-                  ),
+                child: const _DriveMenuItem(
+                  icon: Icons.info_outline_rounded,
+                  label: 'Detail Properties',
                 ),
               ),
               PopupMenuItem<_FileActionMenuItem>(
                 value: _FileActionMenuItem.favorite,
-                child: Text(
-                  file.isBookmarked
+                child: _DriveMenuItem(
+                  icon: file.isBookmarked
+                      ? Icons.bookmark_remove_rounded
+                      : Icons.bookmark_add_rounded,
+                  label: file.isBookmarked
                       ? 'Hapus dari Favorit'
                       : 'Tambah ke Favorit',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppColors.ink,
-                    fontWeight: FontWeight.w700,
-                  ),
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<_FileActionMenuItem>(
+                value: _FileActionMenuItem.delete,
+                child: _DriveMenuItem(
+                  icon: Icons.delete_outline_rounded,
+                  label: 'Hapus',
+                  destructive: true,
                 ),
               ),
             ],
@@ -1464,6 +2160,39 @@ class _DriveFileTile extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _DriveMenuItem extends StatelessWidget {
+  const _DriveMenuItem({
+    required this.icon,
+    required this.label,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = destructive ? AppColors.red : AppColors.ink;
+
+    return Row(
+      children: [
+        Icon(icon, size: 19, color: color),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2248,6 +2977,7 @@ class _KnowledgeSpace {
     required this.icon,
     required this.accentColor,
     required this.folders,
+    this.defaultSectionId,
   });
 
   final String id;
@@ -2256,6 +2986,7 @@ class _KnowledgeSpace {
   final IconData icon;
   final Color accentColor;
   final List<_KnowledgeFolder> folders;
+  final String? defaultSectionId;
 }
 
 class _KnowledgeFolder {
@@ -2272,6 +3003,548 @@ class _KnowledgeFolder {
   final String name;
   final String caption;
   final String updatedLabel;
+}
+
+class _MoveTarget {
+  const _MoveTarget({
+    required this.sectionId,
+    required this.spaceId,
+    required this.label,
+    required this.isRoot,
+  });
+
+  final String sectionId;
+  final String spaceId;
+  final String label;
+  final bool isRoot;
+}
+
+enum _CreateMenuAction { folder, document }
+
+enum _UploadMenuAction { document, file }
+
+class _FolderDraft {
+  const _FolderDraft({required this.name, this.description});
+
+  final String name;
+  final String? description;
+}
+
+class _UploadDraft {
+  const _UploadDraft({required this.title, this.summary});
+
+  final String title;
+  final String? summary;
+}
+
+class _DocumentDraft {
+  const _DocumentDraft({required this.title, required this.body});
+
+  final String title;
+  final String body;
+}
+
+class _CreateMenuSheet extends StatelessWidget {
+  const _CreateMenuSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return _DriveActionSheet(
+      title: 'Buat baru',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _DriveChoiceTile(
+            icon: Icons.create_new_folder_rounded,
+            title: 'Folder',
+            subtitle: 'Buat folder di divisi yang sedang dibuka.',
+            onTap: () => Navigator.of(context).pop(_CreateMenuAction.folder),
+          ),
+          const SizedBox(height: 10),
+          _DriveChoiceTile(
+            icon: Icons.note_add_rounded,
+            title: 'Dokumen',
+            subtitle: 'Buat dokumen teks langsung dari aplikasi.',
+            onTap: () => Navigator.of(context).pop(_CreateMenuAction.document),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UploadMenuSheet extends StatelessWidget {
+  const _UploadMenuSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return _DriveActionSheet(
+      title: 'Upload',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _DriveChoiceTile(
+            icon: Icons.description_rounded,
+            title: 'Upload dokumen',
+            subtitle: 'PDF, Word, Excel, PPT, atau dokumen kerja lain.',
+            onTap: () => Navigator.of(context).pop(_UploadMenuAction.document),
+          ),
+          const SizedBox(height: 10),
+          _DriveChoiceTile(
+            icon: Icons.upload_file_rounded,
+            title: 'Upload file',
+            subtitle: 'Upload lampiran umum ke folder saat ini.',
+            onTap: () => Navigator.of(context).pop(_UploadMenuAction.file),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriveChoiceTile extends StatelessWidget {
+  const _DriveChoiceTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceAlt,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: AppColors.goldDeep),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.ink,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.inkMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.inkMuted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShareLinkSheet extends StatelessWidget {
+  const _ShareLinkSheet({
+    required this.title,
+    required this.shareUrl,
+    required this.onNativeShare,
+  });
+
+  final String title;
+  final String shareUrl;
+  final VoidCallback onNativeShare;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DriveActionSheet(
+      title: 'Share dokumen',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceAlt,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: SelectableText(
+              shareUrl,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.ink,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: shareUrl));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Link sudah disalin.')),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  label: const Text('Copy link'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: onNativeShare,
+                  icon: const Icon(Icons.ios_share_rounded, size: 18),
+                  label: const Text('Share'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SingleInputSheet extends StatelessWidget {
+  const _SingleInputSheet({
+    required this.title,
+    required this.label,
+    required this.controller,
+    required this.submitLabel,
+  });
+
+  final String title;
+  final String label;
+  final TextEditingController controller;
+  final String submitLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DriveActionSheet(
+      title: title,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: controller,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(labelText: label),
+            onSubmitted: (_) => _submit(context),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () => _submit(context),
+              child: Text(submitLabel),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _submit(BuildContext context) {
+    final value = controller.text.trim();
+    if (value.isEmpty) {
+      return;
+    }
+    Navigator.of(context).pop(value);
+  }
+}
+
+class _CreateFolderSheet extends StatelessWidget {
+  const _CreateFolderSheet({
+    required this.nameController,
+    required this.descriptionController,
+  });
+
+  final TextEditingController nameController;
+  final TextEditingController descriptionController;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DriveActionSheet(
+      title: 'Folder baru',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: nameController,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Nama folder'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: descriptionController,
+            maxLines: 2,
+            decoration: const InputDecoration(labelText: 'Deskripsi'),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                if (name.isEmpty) {
+                  return;
+                }
+                Navigator.of(context).pop(
+                  _FolderDraft(
+                    name: name,
+                    description: _blankToNull(descriptionController.text),
+                  ),
+                );
+              },
+              child: const Text('Buat folder'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UploadDocumentSheet extends StatelessWidget {
+  const _UploadDocumentSheet({
+    required this.fileName,
+    required this.titleController,
+    required this.summaryController,
+  });
+
+  final String fileName;
+  final TextEditingController titleController;
+  final TextEditingController summaryController;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DriveActionSheet(
+      title: 'Upload file',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            fileName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: AppColors.inkMuted,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: titleController,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Judul dokumen'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: summaryController,
+            maxLines: 2,
+            decoration: const InputDecoration(labelText: 'Ringkasan'),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () {
+                final title = titleController.text.trim();
+                if (title.isEmpty) {
+                  return;
+                }
+                Navigator.of(context).pop(
+                  _UploadDraft(
+                    title: title,
+                    summary: _blankToNull(summaryController.text),
+                  ),
+                );
+              },
+              child: const Text('Upload'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CreateDocumentSheet extends StatelessWidget {
+  const _CreateDocumentSheet({
+    required this.titleController,
+    required this.bodyController,
+  });
+
+  final TextEditingController titleController;
+  final TextEditingController bodyController;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DriveActionSheet(
+      title: 'Dokumen baru',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: titleController,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Judul dokumen'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: bodyController,
+            minLines: 5,
+            maxLines: 8,
+            decoration: const InputDecoration(labelText: 'Isi dokumen'),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () {
+                final title = titleController.text.trim();
+                final body = bodyController.text.trim();
+                if (title.isEmpty || body.isEmpty) {
+                  return;
+                }
+                Navigator.of(
+                  context,
+                ).pop(_DocumentDraft(title: title, body: body));
+              },
+              child: const Text('Buat dokumen'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MoveDocumentSheet extends StatelessWidget {
+  const _MoveDocumentSheet({required this.targets});
+
+  final List<_MoveTarget> targets;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DriveActionSheet(
+      title: 'Pindah ke',
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 420),
+        child: ListView.separated(
+          shrinkWrap: true,
+          itemBuilder: (context, index) {
+            final target = targets[index];
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                target.isRoot ? Icons.home_work_rounded : Icons.folder_rounded,
+                color: AppColors.goldDeep,
+              ),
+              title: Text(
+                target.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () => Navigator.of(context).pop(target),
+            );
+          },
+          separatorBuilder: (_, __) => const Divider(height: 1),
+          itemCount: targets.length,
+        ),
+      ),
+    );
+  }
+}
+
+class _DriveActionSheet extends StatelessWidget {
+  const _DriveActionSheet({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(14, 0, 14, 14 + bottomInset),
+      child: BrandSurface(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _KnowledgeDocumentFile {
@@ -2326,6 +3599,7 @@ _KnowledgeSpace _adaptSpace(KnowledgeHubSpace space) {
     description: space.description,
     icon: _spaceIconFor(space),
     accentColor: accentColor,
+    defaultSectionId: space.defaultSectionId,
     folders: space.folders.map(_adaptFolder).toList(growable: false),
   );
 }
@@ -2524,6 +3798,28 @@ String _dateLabel(DateTime date) {
   final day = date.day.toString().padLeft(2, '0');
   final month = date.month.toString().padLeft(2, '0');
   return '$day/$month/${date.year}';
+}
+
+String? _blankToNull(String value) {
+  final normalized = value.trim();
+  return normalized.isEmpty ? null : normalized;
+}
+
+String _titleFromPickedFile(String fileName) {
+  final normalized = fileName.trim();
+  if (normalized.isEmpty) {
+    return 'Dokumen baru';
+  }
+
+  return normalized.replaceFirst(RegExp(r'\.[^.]+$'), '').trim();
+}
+
+String _safeDocumentFileName(String value) {
+  final cleaned = value
+      .replaceAll(RegExp(r'[\\/:*?"<>|]+'), '-')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  return cleaned.isEmpty ? 'gesit-document' : cleaned;
 }
 
 extension _BlankStringX on String {
