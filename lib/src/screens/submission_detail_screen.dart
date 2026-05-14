@@ -78,6 +78,8 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
       _activeProgressStep?.requiresSignature ??
       _task.requiresSignature;
 
+  bool get _isLeaveTask => _task.isLeave;
+
   SubmissionAction? get _currentAction =>
       _task.availableActions.isNotEmpty ? _task.availableActions.first : null;
 
@@ -116,6 +118,26 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
   }
 
   String get _statusCardDescription {
+    if (_isLeaveTask) {
+      switch (_task.lane) {
+        case TaskLane.actionable:
+          return 'Periksa detail cuti sebelum memberi keputusan.';
+        case TaskLane.inProgress:
+          return 'Pengajuan cuti ini masih menunggu proses approval.';
+        case TaskLane.history:
+          if (_task.workflowStatus == TaskSubmissionStatus.leaveApproved) {
+            return 'Pengajuan cuti ini sudah disetujui.';
+          }
+          if (_task.workflowStatus == TaskSubmissionStatus.leaveRejected) {
+            return _task.rejectionReason ?? 'Pengajuan cuti ini ditolak.';
+          }
+          if (_task.workflowStatus == TaskSubmissionStatus.leaveCancelled) {
+            return 'Pengajuan cuti ini sudah dibatalkan.';
+          }
+          return 'Pengajuan cuti ini sudah diproses.';
+      }
+    }
+
     switch (_task.lane) {
       case TaskLane.actionable:
         return _currentStepRequiresSignature
@@ -304,7 +326,7 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          'Submission Detail',
+                          _isLeaveTask ? 'Approval Cuti' : 'Submission Detail',
                           style: textTheme.headlineMedium,
                         ),
                       ),
@@ -405,69 +427,71 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 18),
-                Text('Lampiran', style: textTheme.titleLarge),
-                const SizedBox(height: 10),
-                RevealUp(
-                  index: 3,
-                  child: BrandSurface(
-                    padding: const EdgeInsets.all(18),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: AppColors.red.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(14),
+                if (!_isLeaveTask) ...[
+                  const SizedBox(height: 18),
+                  Text('Lampiran', style: textTheme.titleLarge),
+                  const SizedBox(height: 10),
+                  RevealUp(
+                    index: 3,
+                    child: BrandSurface(
+                      padding: const EdgeInsets.all(18),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: AppColors.red.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(
+                              Icons.picture_as_pdf_rounded,
+                              color: AppColors.red,
+                            ),
                           ),
-                          child: const Icon(
-                            Icons.picture_as_pdf_rounded,
-                            color: AppColors.red,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _attachment.value,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: textTheme.titleMedium,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Dokumen PDF',
-                                style: textTheme.bodySmall?.copyWith(
-                                  color: AppColors.inkMuted,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _attachment.value,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: textTheme.titleMedium,
                                 ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        OutlinedButton(
-                          onPressed: !_task.canPreviewPdf
-                              ? null
-                              : () => pushBrandedRoute(
-                                  context,
-                                  SubmissionPdfPreviewScreen(
-                                    task: _task,
-                                    controller: widget.controller,
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Dokumen PDF',
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: AppColors.inkMuted,
                                   ),
                                 ),
-                          child: Text(
-                            _task.canPreviewPdf
-                                ? 'Pratinjau'
-                                : 'Belum tersedia',
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 12),
+                          OutlinedButton(
+                            onPressed: !_task.canPreviewPdf
+                                ? null
+                                : () => pushBrandedRoute(
+                                    context,
+                                    SubmissionPdfPreviewScreen(
+                                      task: _task,
+                                      controller: widget.controller,
+                                    ),
+                                  ),
+                            child: Text(
+                              _task.canPreviewPdf
+                                  ? 'Pratinjau'
+                                  : 'Belum tersedia',
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 18),
                 Text('Status', style: textTheme.titleLarge),
                 const SizedBox(height: 10),
@@ -566,7 +590,10 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                Text('Progress Workflow', style: textTheme.titleLarge),
+                Text(
+                  _isLeaveTask ? 'Progress Approval' : 'Progress Workflow',
+                  style: textTheme.titleLarge,
+                ),
                 const SizedBox(height: 10),
                 RevealUp(
                   index: 5,
@@ -582,7 +609,9 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Progress workflow',
+                                    _isLeaveTask
+                                        ? 'Progress approval'
+                                        : 'Progress workflow',
                                     style: textTheme.titleMedium,
                                   ),
                                   const SizedBox(height: 4),

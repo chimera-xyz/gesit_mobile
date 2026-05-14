@@ -2,7 +2,11 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import 'leave_models.dart';
+
 enum TaskLane { actionable, inProgress, history }
+
+enum TaskKind { submission, leave }
 
 enum TaskSubmissionStatus {
   submitted,
@@ -10,6 +14,10 @@ enum TaskSubmissionStatus {
   pendingDirector,
   pendingAccounting,
   pendingPayment,
+  leavePending,
+  leaveApproved,
+  leaveRejected,
+  leaveCancelled,
   completed,
   rejected,
 }
@@ -40,6 +48,14 @@ extension TaskSubmissionStatusX on TaskSubmissionStatus {
         return 'Pending Accounting';
       case TaskSubmissionStatus.pendingPayment:
         return 'Konfirmasi Bayar';
+      case TaskSubmissionStatus.leavePending:
+        return 'Menunggu Approval';
+      case TaskSubmissionStatus.leaveApproved:
+        return 'Disetujui';
+      case TaskSubmissionStatus.leaveRejected:
+        return 'Ditolak';
+      case TaskSubmissionStatus.leaveCancelled:
+        return 'Dibatalkan';
       case TaskSubmissionStatus.completed:
         return 'Selesai';
       case TaskSubmissionStatus.rejected:
@@ -287,6 +303,7 @@ enum NotificationDestination {
   helpdesk,
   chat,
   knowledgeHub,
+  leave,
   profile,
 }
 
@@ -432,6 +449,8 @@ class TaskItem {
     required this.lane,
     required this.accentColor,
     required this.formFields,
+    this.kind = TaskKind.submission,
+    this.leaveRequest,
     this.requiresSignature = false,
     this.attachmentLabel = 'submission.pdf',
     this.currentApprovalStepId,
@@ -460,6 +479,8 @@ class TaskItem {
   final TaskLane lane;
   final Color accentColor;
   final List<SubmissionField> formFields;
+  final TaskKind kind;
+  final LeaveRequestItem? leaveRequest;
   final bool requiresSignature;
   final String attachmentLabel;
   final int? currentApprovalStepId;
@@ -476,6 +497,10 @@ class TaskItem {
   final String? rejectionReason;
 
   String get statusLabel => workflowStatus.label;
+
+  bool get isLeave => kind == TaskKind.leave;
+
+  String get identityKey => '${kind.name}:${id ?? title}';
 }
 
 class FormTemplate {
@@ -525,6 +550,9 @@ class FormFieldConfig {
     this.options = const [],
     this.minItems = 1,
     this.maxItems = 2,
+    this.allowsMultipleFiles = false,
+    this.maxFiles = 1,
+    this.acceptedFileTypes = const [],
   });
 
   final String id;
@@ -538,6 +566,9 @@ class FormFieldConfig {
   final List<String> options;
   final int minItems;
   final int maxItems;
+  final bool allowsMultipleFiles;
+  final int maxFiles;
+  final List<String> acceptedFileTypes;
 }
 
 class HelpdeskTicket {

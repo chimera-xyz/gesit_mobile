@@ -341,6 +341,7 @@ class GesitApiClient {
     required String formId,
     required Map<String, dynamic> formData,
     Map<String, ApiMultipartFilePayload> files = const {},
+    Map<String, List<ApiMultipartFilePayload>> fileGroups = const {},
   }) async {
     final request = http.MultipartRequest(
       'POST',
@@ -352,6 +353,7 @@ class GesitApiClient {
       request: request,
       formData: formData,
       files: files,
+      fileGroups: fileGroups,
     );
 
     return _sendMultipartRequest(request, cookies: cookies);
@@ -388,6 +390,124 @@ class GesitApiClient {
       path: '/api/form-submissions/$submissionId/reject',
       cookies: cookies,
       body: {'rejection_reason': rejectionReason},
+    );
+  }
+
+  Future<JsonApiPayload> fetchLeaveDashboard({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    int? year,
+  }) {
+    return _getJson(
+      baseUrl: baseUrl,
+      path: '/api/leaves',
+      cookies: cookies,
+      queryParameters: year == null ? const {} : {'year': '$year'},
+    );
+  }
+
+  Future<JsonApiPayload> createLeaveRequest({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String leaveTypeId,
+    required String replacementUserId,
+    required DateTime startDate,
+    required DateTime endDate,
+    required String reason,
+    required String requesterSignatureDataUrl,
+    String? delegationNotes,
+    String? emergencyContact,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/leaves/requests',
+      cookies: cookies,
+      body: {
+        'leave_type_id': leaveTypeId,
+        'replacement_user_id': replacementUserId,
+        'start_date': _dateOnlyString(startDate),
+        'end_date': _dateOnlyString(endDate),
+        'reason': reason.trim(),
+        'requester_signature_data': requesterSignatureDataUrl,
+        if (delegationNotes != null && delegationNotes.trim().isNotEmpty)
+          'delegation_notes': delegationNotes.trim(),
+        if (emergencyContact != null && emergencyContact.trim().isNotEmpty)
+          'emergency_contact': emergencyContact.trim(),
+      },
+    );
+  }
+
+  Future<JsonApiPayload> cancelLeaveRequest({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String leaveRequestId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/leaves/requests/$leaveRequestId/cancel',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> approveLeaveRequest({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String leaveRequestId,
+    String? reviewerNotes,
+    String? signatureId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/leaves/requests/$leaveRequestId/approve',
+      cookies: cookies,
+      body: {
+        if (reviewerNotes != null && reviewerNotes.trim().isNotEmpty)
+          'reviewer_notes': reviewerNotes.trim(),
+        if (signatureId != null && signatureId.trim().isNotEmpty)
+          'signature_id': signatureId.trim(),
+      },
+    );
+  }
+
+  Future<JsonApiPayload> drawLeaveSignature({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required int approvalStepId,
+    required String signatureDataUrl,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/leaves/approval-steps/$approvalStepId/signature',
+      cookies: cookies,
+      body: {'signature_data': signatureDataUrl},
+    );
+  }
+
+  Future<BinaryApiPayload> fetchLeavePdfPreview({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String leaveRequestId,
+  }) {
+    return _getBinary(
+      baseUrl: baseUrl,
+      path: '/api/leaves/requests/$leaveRequestId/pdf/stream',
+      cookies: cookies,
+      accept: 'application/pdf',
+    );
+  }
+
+  Future<JsonApiPayload> rejectLeaveRequest({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String leaveRequestId,
+    required String reviewerNotes,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/leaves/requests/$leaveRequestId/reject',
+      cookies: cookies,
+      body: {'reviewer_notes': reviewerNotes.trim()},
     );
   }
 
@@ -1483,6 +1603,12 @@ class GesitApiClient {
     return rawFileName == null || rawFileName.isEmpty ? null : rawFileName;
   }
 
+  String _dateOnlyString(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
+  }
+
   Map<String, String> get _requestHeaders {
     return const {'Accept': 'application/json'};
   }
@@ -1604,6 +1730,7 @@ class GesitApiClient {
     required http.MultipartRequest request,
     required Map<String, dynamic> formData,
     required Map<String, ApiMultipartFilePayload> files,
+    required Map<String, List<ApiMultipartFilePayload>> fileGroups,
   }) async {
     for (final entry in formData.entries) {
       _appendMultipartField(
@@ -1614,29 +1741,54 @@ class GesitApiClient {
     }
 
     for (final entry in files.entries) {
-      final payload = entry.value;
-      final fieldKey = 'form_data[${entry.key}]';
+      await _appendMultipartFile(
+        request: request,
+        fieldKey: 'form_data[${entry.key}]',
+        payload: entry.value,
+      );
+    }
 
-      if (payload.bytes != null) {
-        request.files.add(
-          http.MultipartFile.fromBytes(
-            fieldKey,
-            payload.bytes!,
-            filename: payload.fileName,
-          ),
-        );
-        continue;
-      }
+    for (final entry in fileGroups.entries) {
+      final payloads = entry.value;
 
-      if (payload.path != null && payload.path!.isNotEmpty) {
-        request.files.add(
-          await http.MultipartFile.fromPath(
-            fieldKey,
-            payload.path!,
-            filename: payload.fileName,
-          ),
+      for (var index = 0; index < payloads.length; index++) {
+        await _appendMultipartFile(
+          request: request,
+          fieldKey: 'form_data[${entry.key}][$index]',
+          payload: payloads[index],
         );
       }
+    }
+  }
+
+  Future<void> _appendMultipartFile({
+    required http.MultipartRequest request,
+    required String fieldKey,
+    required ApiMultipartFilePayload payload,
+  }) async {
+    final mediaType = _parseMediaType(payload.contentType);
+
+    if (payload.bytes != null) {
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          fieldKey,
+          payload.bytes!,
+          filename: payload.fileName,
+          contentType: mediaType,
+        ),
+      );
+      return;
+    }
+
+    if (payload.path != null && payload.path!.isNotEmpty) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          fieldKey,
+          payload.path!,
+          filename: payload.fileName,
+          contentType: mediaType,
+        ),
+      );
     }
   }
 

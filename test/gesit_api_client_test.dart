@@ -261,6 +261,96 @@ void main() {
       expect(body, contains('NVMe Gen 4 untuk workstation.'));
     },
   );
+
+  test(
+    'create submission serializes grouped attachments as multipart files',
+    () async {
+      late http.Request capturedRequest;
+
+      final client = GesitApiClient(
+        httpClient: MockClient((request) async {
+          capturedRequest = request;
+          return _jsonResponse({
+            'success': true,
+            'submission': {'id': 42},
+          }, statusCode: 201);
+        }),
+        browserManagedCookies: false,
+      );
+
+      await client.createSubmission(
+        baseUrl: 'http://127.0.0.1:8000',
+        cookies: const {'gesit_session': 'old-cookie'},
+        formId: '7',
+        formData: const {'amount': 350000},
+        fileGroups: const {
+          'receipt_attachment': [
+            ApiMultipartFilePayload(
+              fileName: 'kwitansi.pdf',
+              bytes: [37, 80, 68, 70],
+              contentType: 'application/pdf',
+            ),
+            ApiMultipartFilePayload(
+              fileName: 'struk.jpg',
+              bytes: [255, 216, 255, 217],
+              contentType: 'image/jpeg',
+            ),
+          ],
+        },
+      );
+
+      final body = latin1.decode(capturedRequest.bodyBytes).toLowerCase();
+
+      expect(capturedRequest.method, 'POST');
+      expect(capturedRequest.url.path, '/api/form-submissions');
+      expect(body, contains('name="form_data[receipt_attachment][0]"'));
+      expect(body, contains('filename="kwitansi.pdf"'));
+      expect(body, contains('content-type: application/pdf'));
+      expect(body, contains('name="form_data[receipt_attachment][1]"'));
+      expect(body, contains('filename="struk.jpg"'));
+      expect(body, contains('content-type: image/jpeg'));
+    },
+  );
+
+  test('create leave request posts date-only JSON payload', () async {
+    late http.Request capturedRequest;
+
+    final client = GesitApiClient(
+      httpClient: MockClient((request) async {
+        capturedRequest = request;
+        return _jsonResponse({
+          'success': true,
+          'request': {'id': 9},
+        }, statusCode: 201);
+      }),
+      browserManagedCookies: false,
+    );
+
+    await client.createLeaveRequest(
+      baseUrl: 'http://127.0.0.1:8000',
+      cookies: const {'gesit_session': 'old-cookie'},
+      leaveTypeId: '1',
+      replacementUserId: '22',
+      startDate: DateTime(2026, 8, 14, 9),
+      endDate: DateTime(2026, 8, 17, 18),
+      reason: 'Extend long weekend Hari Kemerdekaan.',
+      requesterSignatureDataUrl: 'data:image/png;base64,abc123',
+      delegationNotes: 'Catatan ke tim operasional.',
+    );
+
+    final body = jsonDecode(capturedRequest.body) as Map<String, dynamic>;
+
+    expect(capturedRequest.method, 'POST');
+    expect(capturedRequest.url.path, '/api/leaves/requests');
+    expect(capturedRequest.headers['cookie'], contains('old-cookie'));
+    expect(body['leave_type_id'], '1');
+    expect(body['replacement_user_id'], '22');
+    expect(body['start_date'], '2026-08-14');
+    expect(body['end_date'], '2026-08-17');
+    expect(body['reason'], 'Extend long weekend Hari Kemerdekaan.');
+    expect(body['requester_signature_data'], 'data:image/png;base64,abc123');
+    expect(body['delegation_notes'], 'Catatan ke tim operasional.');
+  });
 }
 
 http.Response _jsonResponse(Map<String, dynamic> body, {int statusCode = 200}) {

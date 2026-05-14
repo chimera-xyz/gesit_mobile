@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../data/feed_controller.dart';
 import '../data/demo_data.dart';
 import '../models/feed_models.dart';
+import '../models/leave_models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
 import '../widgets/feed_widgets.dart';
@@ -27,6 +28,7 @@ class HomeScreen extends StatefulWidget {
     required this.canOpenChat,
     required this.onOpenTasks,
     required this.onOpenForms,
+    required this.onOpenLeave,
     required this.onOpenChat,
     required this.onOpenAiAssist,
     required this.onOpenHelpdesk,
@@ -37,6 +39,7 @@ class HomeScreen extends StatefulWidget {
     required this.feedController,
     required this.onOpenFeedThread,
     required this.onOpenAllFeed,
+    this.leaveSummary,
   });
 
   final String userName;
@@ -52,6 +55,7 @@ class HomeScreen extends StatefulWidget {
   final bool canOpenChat;
   final VoidCallback onOpenTasks;
   final VoidCallback onOpenForms;
+  final VoidCallback onOpenLeave;
   final VoidCallback onOpenChat;
   final VoidCallback onOpenAiAssist;
   final VoidCallback onOpenHelpdesk;
@@ -62,6 +66,7 @@ class HomeScreen extends StatefulWidget {
   final FeedController feedController;
   final ValueChanged<FeedPost> onOpenFeedThread;
   final VoidCallback onOpenAllFeed;
+  final LeaveDashboardSummary? leaveSummary;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -218,6 +223,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final feedPosts = widget.feedController.posts
         .take(2)
         .toList(growable: false);
+    final currentLeave = widget.leaveSummary?.currentLeave;
 
     return SingleChildScrollView(
       physics: const ClampingScrollPhysics(),
@@ -288,14 +294,24 @@ class _HomeScreenState extends State<HomeScreen> {
             index: 1,
             child: _WelcomePanel(
               firstName: firstName,
-              canOpenTasks: widget.canOpenTasks,
               canOpenForms: widget.canOpenForms,
-              onOpenTasks: widget.onOpenTasks,
               onOpenForms: widget.onOpenForms,
+              onOpenLeave: widget.onOpenLeave,
               onOpenAiAssist: widget.onOpenAiAssist,
               onToggleLauncher: widget.onToggleLauncher,
             ),
           ),
+          if (currentLeave != null) ...[
+            const SizedBox(height: 14),
+            RevealUp(
+              index: 2,
+              child: _TodayLeaveBanner(
+                request: currentLeave,
+                returnDate: widget.leaveSummary?.currentLeaveReturnDate,
+                onTap: widget.onOpenLeave,
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           const SectionHeader(eyebrow: 'Status', title: 'Today'),
           const SizedBox(height: 14),
@@ -415,22 +431,119 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+class _TodayLeaveBanner extends StatelessWidget {
+  const _TodayLeaveBanner({
+    required this.request,
+    required this.returnDate,
+    required this.onTap,
+  });
+
+  final LeaveRequestItem request;
+  final DateTime? returnDate;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final leaveName = request.leaveType?.name ?? 'Cuti';
+
+    return BrandSurface(
+      onTap: onTap,
+      radius: 22,
+      padding: const EdgeInsets.all(16),
+      backgroundColor: AppColors.green.withValues(alpha: 0.06),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: AppColors.green.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(
+              Icons.beach_access_rounded,
+              color: AppColors.green,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Sedang $leaveName',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.titleMedium?.copyWith(
+                    color: AppColors.ink,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  _formatHomeDateRange(request.startDate, request.endDate),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: AppColors.inkSoft,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (returnDate != null) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Text(
+                      'Masuk lagi ${_formatHomeShortDate(returnDate!)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.labelSmall?.copyWith(
+                        color: AppColors.green,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: AppColors.inkMuted,
+            size: 24,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _WelcomePanel extends StatelessWidget {
   const _WelcomePanel({
     required this.firstName,
-    required this.canOpenTasks,
     required this.canOpenForms,
-    required this.onOpenTasks,
     required this.onOpenForms,
+    required this.onOpenLeave,
     required this.onOpenAiAssist,
     required this.onToggleLauncher,
   });
 
   final String firstName;
-  final bool canOpenTasks;
   final bool canOpenForms;
-  final VoidCallback onOpenTasks;
   final VoidCallback onOpenForms;
+  final VoidCallback onOpenLeave;
   final VoidCallback onOpenAiAssist;
   final VoidCallback onToggleLauncher;
 
@@ -438,27 +551,26 @@ class _WelcomePanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final actions = <_WelcomeAction>[
-      if (canOpenTasks)
-        _WelcomeAction(
-          title: 'Tasks',
-          icon: Icons.fact_check_rounded,
-          accentColor: AppColors.goldDeep,
-          emphasized: true,
-          onTap: onOpenTasks,
-        ),
+      _WelcomeAction(
+        title: 'Cuti',
+        icon: Icons.beach_access_rounded,
+        accentColor: AppColors.goldDeep,
+        emphasized: true,
+        onTap: onOpenLeave,
+      ),
       if (canOpenForms)
         _WelcomeAction(
           title: 'Forms',
           icon: Icons.description_rounded,
           accentColor: AppColors.blue,
-          emphasized: !canOpenTasks,
+          emphasized: false,
           onTap: onOpenForms,
         ),
       _WelcomeAction(
         title: 'AI Assist',
         icon: Icons.auto_awesome_rounded,
         accentColor: AppColors.emerald,
-        emphasized: !canOpenTasks && !canOpenForms,
+        emphasized: false,
         onTap: onOpenAiAssist,
       ),
     ];
@@ -835,4 +947,24 @@ class _CompactStatusCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatHomeShortDate(DateTime date) {
+  return DateFormat('d MMM yyyy', 'id_ID').format(date);
+}
+
+String _formatHomeDateRange(DateTime start, DateTime end) {
+  if (_dateOnly(start) == _dateOnly(end)) {
+    return _formatHomeShortDate(start);
+  }
+
+  if (start.year == end.year && start.month == end.month) {
+    return '${DateFormat('d', 'id_ID').format(start)}-${DateFormat('d MMM yyyy', 'id_ID').format(end)}';
+  }
+
+  return '${DateFormat('d MMM', 'id_ID').format(start)} - ${DateFormat('d MMM yyyy', 'id_ID').format(end)}';
+}
+
+DateTime _dateOnly(DateTime date) {
+  return DateTime(date.year, date.month, date.day);
 }

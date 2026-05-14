@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:mime/mime.dart';
 
 import '../data/demo_data.dart';
 import '../data/gesit_api_client.dart';
@@ -29,7 +30,7 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, String?> _selectedOptions = {};
   final Map<String, Set<String>> _selectedMultiOptions = {};
-  final Map<String, PlatformFile> _selectedFiles = {};
+  final Map<String, List<PlatformFile>> _selectedFiles = {};
   final Map<String, List<_ProcurementItemControllers>> _procurementItems = {};
   bool _showApprovalDetails = false;
   bool _submitting = false;
@@ -487,6 +488,9 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
           onTap: field.readOnly ? null : () => _pickAttachment(field),
           decoration: InputDecoration(
             hintText: field.placeholder ?? 'Pilih file',
+            helperText: field.allowsMultipleFiles
+                ? 'Maksimal ${field.maxFiles} file'
+                : null,
             suffixIcon: IconButton(
               onPressed: field.readOnly ? null : () => _pickAttachment(field),
               icon: const Icon(
@@ -674,8 +678,14 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
   }
 
   Future<void> _pickAttachment(FormFieldConfig field) async {
+    final allowedExtensions = field.acceptedFileTypes
+        .map((extension) => extension.trim().replaceFirst(RegExp(r'^\.'), ''))
+        .where((extension) => extension.isNotEmpty)
+        .toList(growable: false);
     final selectedFile = await FilePicker.platform.pickFiles(
-      allowMultiple: false,
+      allowMultiple: field.allowsMultipleFiles,
+      type: allowedExtensions.isEmpty ? FileType.any : FileType.custom,
+      allowedExtensions: allowedExtensions.isEmpty ? null : allowedExtensions,
       withData: true,
     );
 
@@ -683,10 +693,33 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
       return;
     }
 
-    final file = selectedFile.files.single;
-    _selectedFiles[field.id] = file;
-    _controllers[field.id]?.text = file.name;
+    final selectedFiles = selectedFile.files.take(field.maxFiles).toList();
+    _selectedFiles[field.id] = selectedFiles;
+    _controllers[field.id]?.text = _fileSelectionLabel(selectedFiles);
+
+    if (selectedFile.files.length > field.maxFiles && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Maksimal ${field.maxFiles} file untuk ${field.label}.',
+          ),
+        ),
+      );
+    }
+
     setState(() {});
+  }
+
+  String _fileSelectionLabel(List<PlatformFile> files) {
+    if (files.isEmpty) {
+      return '';
+    }
+
+    if (files.length == 1) {
+      return files.single.name;
+    }
+
+    return '${files.length} file dipilih';
   }
 
   List<_ProcurementItemControllers> _procurementItemControllers(
@@ -750,7 +783,7 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
             .where((value) => value.trim().isNotEmpty)
             .toList(growable: false);
       case FormFieldType.file:
-        return _selectedFiles[field.id];
+        return _selectedFiles[field.id] ?? const <PlatformFile>[];
       case FormFieldType.procurementItems:
         return _procurementItemControllers(field)
             .map((item) => item.toPayload())
@@ -785,6 +818,7 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
     final missingFields = <String>[];
     final formData = <String, dynamic>{};
     final files = <String, ApiMultipartFilePayload>{};
+    final fileGroups = <String, List<ApiMultipartFilePayload>>{};
 
     for (final field in widget.form.fields) {
       final value = _submissionFieldValue(field);
@@ -799,15 +833,32 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
 
       switch (field.type) {
         case FormFieldType.file:
-          final file = value is PlatformFile ? value : null;
-          if (file == null) {
+          final selectedFiles = value is List<PlatformFile>
+              ? value
+              : const <PlatformFile>[];
+          if (selectedFiles.isEmpty) {
             continue;
           }
-          files[field.id] = ApiMultipartFilePayload(
-            fileName: file.name,
-            path: file.path,
-            bytes: file.bytes,
-          );
+
+          final payloads = selectedFiles
+              .map(
+                (file) => ApiMultipartFilePayload(
+                  fileName: file.name,
+                  path: file.path,
+                  bytes: file.bytes,
+                  contentType: lookupMimeType(
+                    file.name,
+                    headerBytes: file.bytes,
+                  ),
+                ),
+              )
+              .toList(growable: false);
+
+          if (field.allowsMultipleFiles) {
+            fileGroups[field.id] = payloads;
+          } else {
+            files[field.id] = payloads.first;
+          }
           break;
         case FormFieldType.checkbox:
           if (value is List<String> && value.isNotEmpty) {
@@ -851,6 +902,7 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
         form: widget.form,
         formData: formData,
         files: files,
+        fileGroups: fileGroups,
       );
 
       if (!mounted) {

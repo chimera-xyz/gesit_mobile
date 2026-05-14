@@ -8,6 +8,7 @@ import '../data/chat_call_media_engine.dart';
 import '../data/chat_workspace_controller.dart';
 import '../data/feed_controller.dart';
 import '../data/gesit_api_client.dart';
+import '../data/leave_data_controller.dart';
 import '../data/notification_center_controller.dart';
 import '../data/workspace_data_controller.dart';
 import '../models/app_models.dart';
@@ -23,6 +24,7 @@ import '../screens/forms_screen.dart';
 import '../screens/helpdesk_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/knowledge_workspace_screen.dart';
+import '../screens/leave_dashboard_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/profile_detail_screen.dart';
 import '../screens/submission_detail_screen.dart';
@@ -57,6 +59,7 @@ class _GesitShellState extends State<GesitShell>
   late final AnimationController _tabTransitionController;
   late final NotificationCenterController _notificationController;
   late final WorkspaceDataController _workspaceController;
+  late final LeaveDataController _leaveController;
   late final ChatWorkspaceController _chatController;
   late final FeedController _feedController;
   late final Listenable _homeTabListenable;
@@ -82,12 +85,16 @@ class _GesitShellState extends State<GesitShell>
     _workspaceController = WorkspaceDataController(
       sessionController: widget.sessionController,
     );
+    _leaveController = LeaveDataController(
+      sessionController: widget.sessionController,
+    );
     _feedController = FeedController(
       sessionController: widget.sessionController,
     );
     _homeTabListenable = Listenable.merge([
       _notificationController,
       _workspaceController,
+      _leaveController,
       _feedController,
     ]);
     _navigationListenable = Listenable.merge([
@@ -122,6 +129,13 @@ class _GesitShellState extends State<GesitShell>
       return;
     }
 
+    if (_session.canAccessLeave) {
+      await _leaveController.ensureLoaded();
+      if (!mounted) {
+        return;
+      }
+    }
+
     await _feedController.ensureLoaded();
   }
 
@@ -139,6 +153,7 @@ class _GesitShellState extends State<GesitShell>
     _notificationOpenRequestSubscription?.cancel();
     _chatController.dispose();
     _workspaceController.dispose();
+    _leaveController.dispose();
     _feedController.dispose();
     _notificationController.dispose();
     _tabTransitionController.dispose();
@@ -291,6 +306,14 @@ class _GesitShellState extends State<GesitShell>
     );
   }
 
+  void _openLeaveDashboard() {
+    _setLauncherExpanded(false);
+    pushBrandedRoute(
+      context,
+      LeaveDashboardScreen(controller: _leaveController),
+    );
+  }
+
   void _openProfileDetails() {
     pushBrandedRoute(
       context,
@@ -320,6 +343,12 @@ class _GesitShellState extends State<GesitShell>
           selected: currentModule == AppShellModule.forms,
           onTap: () => _selectModule(AppShellModule.forms),
         ),
+      _LauncherItem(
+        label: 'Cuti',
+        icon: Icons.beach_access_rounded,
+        accentColor: AppColors.goldDeep,
+        onTap: _openLeaveDashboard,
+      ),
       _LauncherItem(
         label: 'AI Assist',
         icon: Icons.auto_awesome_rounded,
@@ -578,7 +607,7 @@ class _GesitShellState extends State<GesitShell>
   Future<void> _openNotificationDestination(
     AppNotification notification,
   ) async {
-    if (await _openNotificationLink(notification.link)) {
+    if (await _openNotificationLink(notification)) {
       return;
     }
 
@@ -619,13 +648,23 @@ class _GesitShellState extends State<GesitShell>
           _openKnowledgeHub();
         }
         return;
+      case NotificationDestination.leave:
+        if (notification.type == AppNotificationType.approval &&
+            _session.canAccessTasks) {
+          unawaited(_workspaceController.refreshTasks());
+          _selectModule(AppShellModule.tasks);
+        } else {
+          _openLeaveDashboard();
+        }
+        return;
       case NotificationDestination.profile:
         _selectModule(AppShellModule.profile);
         return;
     }
   }
 
-  Future<bool> _openNotificationLink(String? rawLink) async {
+  Future<bool> _openNotificationLink(AppNotification notification) async {
+    final rawLink = notification.link;
     final normalizedLink = rawLink?.trim();
     if (normalizedLink == null || normalizedLink.isEmpty) {
       return false;
@@ -731,6 +770,17 @@ class _GesitShellState extends State<GesitShell>
     if (path.contains('/knowledge-hub')) {
       if (_session.canAccessKnowledgeHub) {
         _openKnowledgeHub();
+      }
+      return true;
+    }
+
+    if (path.contains('/leaves')) {
+      if (notification.type == AppNotificationType.approval &&
+          _session.canAccessTasks) {
+        unawaited(_workspaceController.refreshTasks());
+        _selectModule(AppShellModule.tasks);
+      } else {
+        _openLeaveDashboard();
       }
       return true;
     }
@@ -952,6 +1002,7 @@ class _GesitShellState extends State<GesitShell>
           canOpenChat: session.canAccessChat,
           onOpenTasks: () => _selectModule(AppShellModule.tasks),
           onOpenForms: () => _selectModule(AppShellModule.forms),
+          onOpenLeave: _openLeaveDashboard,
           onOpenChat: () => _selectModule(AppShellModule.chat),
           onOpenAiAssist: _openAiAssist,
           onOpenHelpdesk: _openHelpdesk,
@@ -962,6 +1013,7 @@ class _GesitShellState extends State<GesitShell>
           feedController: _feedController,
           onOpenFeedThread: _openFeedThread,
           onOpenAllFeed: _openFeedTimeline,
+          leaveSummary: _leaveController.dashboard.summary,
         ),
       ),
       AppShellModule.tasks when session.canAccessTasks => TasksScreen(

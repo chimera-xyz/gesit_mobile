@@ -609,6 +609,9 @@ IconData _iconForForm(FormTemplate form) {
   if (text.contains('vendor') || text.contains('legal')) {
     return Icons.business_center_rounded;
   }
+  if (text.contains('reimbursement') || text.contains('berobat')) {
+    return Icons.medical_services_rounded;
+  }
   if (text.contains('marketing') || text.contains('campaign')) {
     return Icons.campaign_rounded;
   }

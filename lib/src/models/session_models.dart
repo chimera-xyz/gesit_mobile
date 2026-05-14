@@ -184,11 +184,20 @@ class AuthenticatedUser {
 
   bool hasRole(String role) => roles.contains(role);
 
-  bool get canAccessTasks => hasPermission('view submissions');
+  bool get canAccessSubmissionTasks => hasPermission('view submissions');
+
+  bool get canAccessTasks => canAccessSubmissionTasks || canAccessLeave;
 
   bool get canAccessForms => hasPermission('view forms');
 
   bool get canApproveForms => hasPermission('approve forms');
+
+  bool get canAccessLeave => hasPermission('view leave dashboard');
+
+  bool get canApproveLeave =>
+      hasPermission('approve leave requests') ||
+      hasPermission('manage leave settings') ||
+      hasRole('Admin');
 
   bool get canAccessHelpdesk => hasPermission('view helpdesk tickets');
 
@@ -291,6 +300,10 @@ class AppSession {
   bool get canAccessForms => user.canAccessForms;
 
   bool get canApproveForms => user.canApproveForms;
+
+  bool get canAccessLeave => user.canAccessLeave;
+
+  bool get canApproveLeave => user.canApproveLeave;
 
   bool get canAccessHelpdesk => user.canAccessHelpdesk;
 

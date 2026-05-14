@@ -81,32 +81,6 @@ class DemoData {
       attachmentLabel: 'quotation-laptop-trading-desk.pdf',
     ),
     TaskItem(
-      title: 'Perubahan Hak Akses Treasury Portal',
-      requester: 'RC Geming',
-      summary:
-          'Akses maker-checker untuk user baru sudah diajukan dan saat ini menunggu review dari tim IT.',
-      workflowLabel: 'User Access Request',
-      workflowStatus: TaskSubmissionStatus.pendingIt,
-      priorityLabel: 'Normal',
-      timeLabel: 'Hari ini, 14:00',
-      lane: TaskLane.actionable,
-      accentColor: AppColors.blue,
-      formFields: [
-        SubmissionField(label: 'Jenis Permintaan', value: 'Perubahan Role'),
-        SubmissionField(label: 'Sistem Tujuan', value: 'Treasury Portal'),
-        SubmissionField(label: 'Nama User', value: 'Reza Pratama'),
-        SubmissionField(label: 'Employee ID', value: 'EMP-241207'),
-        SubmissionField(label: 'Role yang Diminta', value: 'Checker'),
-        SubmissionField(label: 'Tanggal Efektif', value: '20 Apr 2026'),
-        SubmissionField(
-          label: 'Justifikasi Akses',
-          value:
-              'Penyesuaian otorisasi transaksi untuk rotasi peran di unit treasury.',
-        ),
-      ],
-      attachmentLabel: 'memo-perubahan-akses-treasury.pdf',
-    ),
-    TaskItem(
       title: 'Approval Perjalanan Dinas Surabaya',
       requester: 'Aldo Permana',
       summary:
@@ -396,6 +370,16 @@ class DemoData {
           type: FormFieldType.text,
           placeholder: 'Contoh: Tokopedia, Bhinneka, Microsoft 365 Business',
         ),
+        FormFieldConfig(
+          id: 'checkout_payment_attachment',
+          label: 'Lampiran Checkout Pembayaran',
+          type: FormFieldType.file,
+          helperText:
+              'Lampirkan screenshot checkout pembayaran atau file PDF pendukung.',
+          allowsMultipleFiles: true,
+          maxFiles: 5,
+          acceptedFileTypes: ['pdf', 'jpg', 'jpeg', 'png', 'webp'],
+        ),
       ],
       approvalSteps: [
         'Pengajuan Dibuat',
@@ -408,72 +392,6 @@ class DemoData {
       accentColor: AppColors.goldDeep,
       tags: ['High usage', 'Signature', 'PDF'],
       descriptionVerified: true,
-    ),
-    FormTemplate(
-      title: 'Permintaan Akses Sistem',
-      description: '',
-      category: 'Access',
-      workflow: 'Access Control Flow',
-      etaLabel: '1-2 hari kerja',
-      fields: [
-        FormFieldConfig(
-          id: 'request_type',
-          label: 'Jenis Permintaan',
-          type: FormFieldType.select,
-          options: ['User Baru', 'Perubahan Role', 'Pencabutan Akses'],
-          required: true,
-        ),
-        FormFieldConfig(
-          id: 'system_name',
-          label: 'Sistem Tujuan',
-          type: FormFieldType.select,
-          options: ['S21+', 'GESIT Core', 'HRIS', 'Email Korporat'],
-          required: true,
-        ),
-        FormFieldConfig(
-          id: 'user_name',
-          label: 'Nama User',
-          type: FormFieldType.text,
-          placeholder: 'Nama lengkap user yang diajukan',
-          required: true,
-        ),
-        FormFieldConfig(
-          id: 'employee_id',
-          label: 'Employee ID',
-          type: FormFieldType.text,
-          placeholder: 'Contoh: EMP-240118',
-          required: true,
-        ),
-        FormFieldConfig(
-          id: 'requested_role',
-          label: 'Role yang Diminta',
-          type: FormFieldType.select,
-          options: ['Viewer', 'Maker', 'Checker', 'Approver', 'Admin'],
-          required: true,
-        ),
-        FormFieldConfig(
-          id: 'effective_date',
-          label: 'Tanggal Efektif',
-          type: FormFieldType.date,
-          required: true,
-        ),
-        FormFieldConfig(
-          id: 'request_reason',
-          label: 'Justifikasi Akses',
-          type: FormFieldType.multiline,
-          placeholder: 'Jelaskan kebutuhan akses dan cakupan pekerjaannya',
-          required: true,
-        ),
-        FormFieldConfig(
-          id: 'supporting_document',
-          label: 'Dokumen Pendukung',
-          type: FormFieldType.file,
-          helperText: 'Optional untuk lampiran approval atau memo internal',
-        ),
-      ],
-      approvalSteps: ['Requester', 'Manager', 'IT Security', 'IT Ops', 'Done'],
-      accentColor: AppColors.blue,
-      tags: ['Audit trail', 'Security'],
     ),
     FormTemplate(
       title: 'Perjalanan Dinas',
@@ -1011,6 +929,10 @@ class DemoData {
         return 5;
       case TaskSubmissionStatus.completed:
       case TaskSubmissionStatus.rejected:
+      case TaskSubmissionStatus.leavePending:
+      case TaskSubmissionStatus.leaveApproved:
+      case TaskSubmissionStatus.leaveRejected:
+      case TaskSubmissionStatus.leaveCancelled:
         return 0;
     }
   }
@@ -1234,6 +1156,10 @@ class DemoData {
       case TaskSubmissionStatus.submitted:
       case TaskSubmissionStatus.pendingIt:
       case TaskSubmissionStatus.pendingAccounting:
+      case TaskSubmissionStatus.leavePending:
+      case TaskSubmissionStatus.leaveApproved:
+      case TaskSubmissionStatus.leaveRejected:
+      case TaskSubmissionStatus.leaveCancelled:
         return false;
     }
   }

@@ -75,6 +75,8 @@ AppNotificationType _typeFromPayload(String rawType, String? link) {
         return AppNotificationType.helpdesk;
       }
       return AppNotificationType.system;
+    case 'leave_request':
+      return AppNotificationType.system;
     case 'general':
       if (link != null && link.contains('/chat/conversations')) {
         return link.contains('call=')
@@ -110,6 +112,9 @@ NotificationDestination _destinationFromLink(String? link) {
   if (link.contains('/knowledge-hub')) {
     return NotificationDestination.knowledgeHub;
   }
+  if (link.contains('/leaves')) {
+    return NotificationDestination.leave;
+  }
   if (link.contains('/profile') || link.contains('/user/profile')) {
     return NotificationDestination.profile;
   }
@@ -137,6 +142,8 @@ String _detailFromDestination(NotificationDestination destination) {
       return 'Buka modul Chat untuk melihat percakapan terbaru.';
     case NotificationDestination.knowledgeHub:
       return 'Buka Knowledge Hub untuk melihat dokumen terkait.';
+    case NotificationDestination.leave:
+      return 'Buka dashboard cuti untuk melihat pengajuan terkait.';
     case NotificationDestination.profile:
       return 'Buka profil untuk melihat pembaruan terkait akun Anda.';
     case NotificationDestination.none:
@@ -158,6 +165,8 @@ String? _primaryActionLabel(NotificationDestination destination) {
       return 'Buka chat';
     case NotificationDestination.knowledgeHub:
       return 'Buka hub';
+    case NotificationDestination.leave:
+      return 'Buka cuti';
     case NotificationDestination.profile:
       return 'Buka profil';
     case NotificationDestination.none:

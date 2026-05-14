@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/app_models.dart';
+import '../models/leave_models.dart';
 import '../models/session_models.dart';
 import '../theme/app_theme.dart';
 import 'app_session_controller.dart';
@@ -50,7 +51,7 @@ class WorkspaceDataController extends ChangeNotifier {
 
   bool get canShowActionableTasksLane {
     final user = _sessionController.session?.user;
-    if (user?.canApproveForms == true) {
+    if (user?.canApproveForms == true || user?.canAccessLeave == true) {
       return true;
     }
 
@@ -59,7 +60,7 @@ class WorkspaceDataController extends ChangeNotifier {
 
   TaskItem? taskById(String submissionId) {
     for (final task in _tasks) {
-      if (task.id == submissionId) {
+      if (!task.isLeave && task.id == submissionId) {
         return task;
       }
     }
@@ -156,28 +157,101 @@ class WorkspaceDataController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final payload = await _apiClient.fetchSubmissions(
-        baseUrl: session.apiBaseUrl,
-        cookies: session.cookies,
-        queryParameters: {
-          if (search != null && search.trim().isNotEmpty)
-            'search': search.trim(),
-          if (status != null && status.trim().isNotEmpty)
-            'status': status.trim(),
-          if (formId != null && formId.trim().isNotEmpty)
-            'form_id': formId.trim(),
-        },
-      );
-      await _sessionController.syncCookies(payload.cookies);
+      var latestCookies = session.cookies;
+      final tasks = <TaskItem>[];
+      var tasksError = '';
 
-      final rawSubmissions = _asList(payload.data['submissions']);
-      final tasks = rawSubmissions
-          .map((rawSubmission) => _adaptSubmission(rawSubmission, session))
-          .toList(growable: false);
+      if (session.user.canAccessSubmissionTasks) {
+        try {
+          final payload = await _apiClient.fetchSubmissions(
+            baseUrl: session.apiBaseUrl,
+            cookies: latestCookies,
+            queryParameters: {
+              if (search != null && search.trim().isNotEmpty)
+                'search': search.trim(),
+              if (status != null && status.trim().isNotEmpty)
+                'status': status.trim(),
+              if (formId != null && formId.trim().isNotEmpty)
+                'form_id': formId.trim(),
+            },
+          );
+          latestCookies = payload.cookies;
+          await _sessionController.syncCookies(payload.cookies);
+
+          final rawSubmissions = _asList(payload.data['submissions']);
+          tasks.addAll(
+            rawSubmissions.map(
+              (rawSubmission) => _adaptSubmission(rawSubmission, session),
+            ),
+          );
+        } on GesitApiException catch (error) {
+          if (error.statusCode == 401) {
+            _tasksError = 'Sesi login berakhir. Silakan masuk lagi.';
+            _tasks = const <TaskItem>[];
+            _usingFallbackTasks = false;
+            await _sessionController.invalidateSession(
+              errorMessage: _tasksError,
+            );
+            return;
+          }
+          tasksError = error.message;
+        } on TimeoutException {
+          tasksError = 'Server tasks terlalu lama merespons.';
+        } catch (_) {
+          tasksError = 'Tasks belum bisa dimuat dari server.';
+        }
+      }
+
+      if (session.user.canAccessLeave) {
+        try {
+          final leavePayload = await _apiClient.fetchLeaveDashboard(
+            baseUrl: session.apiBaseUrl,
+            cookies: latestCookies,
+          );
+          latestCookies = leavePayload.cookies;
+          await _sessionController.syncCookies(leavePayload.cookies);
+
+          final dashboard = LeaveDashboardData.fromJson(leavePayload.data);
+          tasks.addAll(
+            dashboard.approvalQueue
+                .map(
+                  (request) =>
+                      _adaptLeaveApproval(request, baseUrl: session.apiBaseUrl),
+                )
+                .toList(growable: false),
+          );
+        } on GesitApiException catch (error) {
+          if (error.statusCode == 401) {
+            _tasksError = 'Sesi login berakhir. Silakan masuk lagi.';
+            _tasks = const <TaskItem>[];
+            _usingFallbackTasks = false;
+            await _sessionController.invalidateSession(
+              errorMessage: _tasksError,
+            );
+            return;
+          }
+          tasksError = error.message;
+        } on TimeoutException {
+          tasksError = 'Server cuti terlalu lama merespons.';
+        } catch (_) {
+          tasksError = 'Approval cuti belum bisa dimuat.';
+        }
+      }
+
+      if (tasks.isEmpty &&
+          tasksError.isNotEmpty &&
+          session.user.canAccessSubmissionTasks &&
+          !session.user.canAccessLeave) {
+        _tasksError = tasksError;
+        _tasks = List<TaskItem>.unmodifiable(DemoData.tasks);
+        _usingFallbackTasks = true;
+        return;
+      }
+
       tasks.sort(_sortTasks);
       _tasks = List<TaskItem>.unmodifiable(tasks);
       _usingFallbackTasks = false;
-      _tasksError = null;
+      _tasksError = tasksError.isEmpty ? null : tasksError;
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
         _tasksError = 'Sesi login berakhir. Silakan masuk lagi.';
@@ -205,6 +279,10 @@ class WorkspaceDataController extends ChangeNotifier {
   }
 
   Future<TaskItem> fetchTaskDetail(TaskItem task) async {
+    if (task.isLeave) {
+      return _fetchLeaveTaskDetail(task);
+    }
+
     if (task.id == null || task.id!.trim().isEmpty) {
       return task;
     }
@@ -235,6 +313,23 @@ class WorkspaceDataController extends ChangeNotifier {
     }
 
     final session = _requireSession();
+    if (task.isLeave) {
+      final payload = await _apiClient.fetchLeavePdfPreview(
+        baseUrl: session.apiBaseUrl,
+        cookies: session.cookies,
+        leaveRequestId: submissionId,
+      );
+      await _sessionController.syncCookies(payload.cookies);
+
+      if (payload.bytes.isEmpty) {
+        throw const GesitApiException(
+          'File PDF cuti kosong atau belum tersedia.',
+        );
+      }
+
+      return payload.bytes;
+    }
+
     final payload = await _apiClient.fetchSubmissionPdfPreview(
       baseUrl: session.apiBaseUrl,
       cookies: session.cookies,
@@ -278,6 +373,7 @@ class WorkspaceDataController extends ChangeNotifier {
     required FormTemplate form,
     required Map<String, dynamic> formData,
     Map<String, ApiMultipartFilePayload> files = const {},
+    Map<String, List<ApiMultipartFilePayload>> fileGroups = const {},
   }) async {
     final session = _requireSession();
     final formId = form.id;
@@ -294,6 +390,7 @@ class WorkspaceDataController extends ChangeNotifier {
       formId: formId,
       formData: formData,
       files: files,
+      fileGroups: fileGroups,
     );
     await _sessionController.syncCookies(payload.cookies);
 
@@ -313,6 +410,14 @@ class WorkspaceDataController extends ChangeNotifier {
     required String notes,
     String? signatureDataUrl,
   }) async {
+    if (task.isLeave) {
+      return _approveLeaveTask(
+        task: task,
+        notes: notes,
+        signatureDataUrl: signatureDataUrl,
+      );
+    }
+
     final session = _requireSession();
     var latestCookies = session.cookies;
     String? signatureId;
@@ -365,6 +470,10 @@ class WorkspaceDataController extends ChangeNotifier {
     required TaskItem task,
     required String reason,
   }) async {
+    if (task.isLeave) {
+      return _rejectLeaveTask(task: task, reason: reason);
+    }
+
     if (task.id == null || task.id!.trim().isEmpty) {
       throw const GesitApiException('Submission ini belum punya ID backend.');
     }
@@ -406,7 +515,9 @@ class WorkspaceDataController extends ChangeNotifier {
 
   void _replaceOrInsertTask(TaskItem nextTask) {
     final nextTasks = _tasks.toList(growable: true);
-    final currentIndex = nextTasks.indexWhere((task) => task.id == nextTask.id);
+    final currentIndex = nextTasks.indexWhere(
+      (task) => task.identityKey == nextTask.identityKey,
+    );
 
     if (currentIndex >= 0) {
       nextTasks[currentIndex] = nextTask;
@@ -459,6 +570,7 @@ class WorkspaceDataController extends ChangeNotifier {
       title: _stringValue(rawForm['name']) ?? 'Internal Form',
       description: description,
       category: _formCategory(
+        formConfig: formConfig,
         title: _stringValue(rawForm['name']) ?? '',
         workflow: workflowLabel,
       ),
@@ -491,6 +603,10 @@ class WorkspaceDataController extends ChangeNotifier {
       fieldType,
     );
 
+    final allowsMultipleFiles =
+        rawField['multiple'] == true ||
+        ((_intValue(rawField['max_files']) ?? 1) > 1);
+
     return FormFieldConfig(
       id: _stringValue(rawField['id']) ?? '',
       label: _stringValue(rawField['label']) ?? 'Field',
@@ -503,6 +619,12 @@ class WorkspaceDataController extends ChangeNotifier {
       options: _normalizeOptions(rawField['options']),
       minItems: _intValue(rawField['min_items']) ?? 1,
       maxItems: _intValue(rawField['max_items']) ?? 2,
+      allowsMultipleFiles: allowsMultipleFiles,
+      maxFiles:
+          _intValue(rawField['max_files']) ?? (allowsMultipleFiles ? 5 : 1),
+      acceptedFileTypes: _normalizeOptions(
+        rawField['accepted_mimes'] ?? rawField['accepted_extensions'],
+      ),
     );
   }
 
@@ -590,6 +712,356 @@ class WorkspaceDataController extends ChangeNotifier {
       ),
       rejectionReason: _stringValue(rawSubmission['rejection_reason']),
     );
+  }
+
+  Future<TaskItem> _fetchLeaveTaskDetail(TaskItem task) async {
+    final leaveRequestId = task.id?.trim();
+    if (leaveRequestId == null || leaveRequestId.isEmpty) {
+      return task;
+    }
+
+    final session = _requireSession();
+    final payload = await _apiClient.fetchLeaveDashboard(
+      baseUrl: session.apiBaseUrl,
+      cookies: session.cookies,
+    );
+    await _sessionController.syncCookies(payload.cookies);
+
+    final dashboard = LeaveDashboardData.fromJson(payload.data);
+    final leaveRequest = dashboard.approvalQueue
+        .where((request) => request.id == leaveRequestId)
+        .firstOrNull;
+    if (leaveRequest == null) {
+      return task;
+    }
+
+    final updatedTask = _adaptLeaveApproval(
+      leaveRequest,
+      baseUrl: session.apiBaseUrl,
+    );
+    _replaceOrInsertTask(updatedTask);
+    notifyListeners();
+    return updatedTask;
+  }
+
+  Future<TaskItem> _approveLeaveTask({
+    required TaskItem task,
+    required String notes,
+    String? signatureDataUrl,
+  }) async {
+    final leaveRequestId = task.id?.trim();
+    if (leaveRequestId == null || leaveRequestId.isEmpty) {
+      throw const GesitApiException('Pengajuan cuti belum punya ID backend.');
+    }
+
+    final session = _requireSession();
+    var latestCookies = session.cookies;
+    String? signatureId;
+
+    if (signatureDataUrl != null && signatureDataUrl.trim().isNotEmpty) {
+      final approvalStepId = task.currentApprovalStepId;
+      if (approvalStepId == null) {
+        throw const GesitApiException(
+          'Approval step cuti aktif tidak ditemukan untuk signature.',
+        );
+      }
+
+      final signaturePayload = await _apiClient.drawLeaveSignature(
+        baseUrl: session.apiBaseUrl,
+        cookies: latestCookies,
+        approvalStepId: approvalStepId,
+        signatureDataUrl: signatureDataUrl,
+      );
+      latestCookies = signaturePayload.cookies;
+      await _sessionController.syncCookies(latestCookies);
+      final signature = _asMap(signaturePayload.data['signature']);
+      signatureId = _stringValue(signature['id']);
+    }
+
+    final payload = await _apiClient.approveLeaveRequest(
+      baseUrl: session.apiBaseUrl,
+      cookies: latestCookies,
+      leaveRequestId: leaveRequestId,
+      reviewerNotes: notes.trim().isEmpty ? null : notes.trim(),
+      signatureId: signatureId,
+    );
+    await _sessionController.syncCookies(payload.cookies);
+
+    final request = _asMap(payload.data['request']);
+    if (request.isEmpty) {
+      throw const GesitApiException('Respons approval cuti tidak valid.');
+    }
+
+    final updatedTask = _adaptLeaveApproval(
+      LeaveRequestItem.fromJson(request),
+      baseUrl: session.apiBaseUrl,
+    );
+    _replaceOrInsertTask(updatedTask);
+    await refreshTasks();
+    return updatedTask;
+  }
+
+  Future<TaskItem> _rejectLeaveTask({
+    required TaskItem task,
+    required String reason,
+  }) async {
+    final leaveRequestId = task.id?.trim();
+    if (leaveRequestId == null || leaveRequestId.isEmpty) {
+      throw const GesitApiException('Pengajuan cuti belum punya ID backend.');
+    }
+
+    final session = _requireSession();
+    final payload = await _apiClient.rejectLeaveRequest(
+      baseUrl: session.apiBaseUrl,
+      cookies: session.cookies,
+      leaveRequestId: leaveRequestId,
+      reviewerNotes: reason.trim(),
+    );
+    await _sessionController.syncCookies(payload.cookies);
+
+    final request = _asMap(payload.data['request']);
+    if (request.isEmpty) {
+      throw const GesitApiException('Respons penolakan cuti tidak valid.');
+    }
+
+    final updatedTask = _adaptLeaveApproval(
+      LeaveRequestItem.fromJson(request),
+      baseUrl: session.apiBaseUrl,
+    );
+    _replaceOrInsertTask(updatedTask);
+    await refreshTasks();
+    return updatedTask;
+  }
+
+  TaskItem _adaptLeaveApproval(LeaveRequestItem request, {String? baseUrl}) {
+    final status = request.status.trim().toLowerCase();
+    final isPending = status == 'pending';
+    final submittedAt = request.submittedAt ?? request.createdAt;
+    final currentStep = request.currentPendingStep;
+    final availableActions = request.availableActions
+        .map(_adaptLeaveAction)
+        .toList(growable: false);
+    final timelineSteps = request.approvalSteps
+        .map(
+          (step) => _adaptLeaveTimelineStep(
+            step,
+            currentPendingStepId: currentStep?.id,
+          ),
+        )
+        .toList(growable: false);
+    final pdfPreviewUrl = _resolveAbsoluteUrl(
+      baseUrl ?? '',
+      request.pdfPreviewUrl,
+    );
+    final pdfDownloadUrl = _resolveAbsoluteUrl(
+      baseUrl ?? '',
+      request.pdfDownloadUrl,
+    );
+
+    return TaskItem(
+      id: request.id,
+      title: request.leaveType?.name ?? 'Pengajuan Cuti',
+      requester: request.requesterName ?? 'Karyawan',
+      summary: _leaveSummary(request),
+      workflowLabel: 'Approval Cuti',
+      workflowStatus: _mapLeaveStatus(status),
+      priorityLabel: request.durationLabel,
+      timeLabel: _relativeTimeLabel(submittedAt),
+      lane: availableActions.isNotEmpty
+          ? TaskLane.actionable
+          : isPending
+          ? TaskLane.inProgress
+          : TaskLane.history,
+      accentColor: _leaveStatusColor(status),
+      formFields: _leaveDetailFields(request),
+      kind: TaskKind.leave,
+      leaveRequest: request,
+      requiresSignature: availableActions.any(
+        (action) => action.requiresSignature,
+      ),
+      attachmentLabel:
+          _fileNameFromUrl(pdfDownloadUrl) ?? 'CUTI-${request.id}.pdf',
+      currentApprovalStepId: currentStep?.id,
+      currentActionTitle:
+          currentStep?.stepName ??
+          availableActions.firstOrNull?.stepName ??
+          request.statusLabel,
+      currentActionNotesPlaceholder:
+          availableActions.firstOrNull?.notesPlaceholder ??
+          'Tambahkan catatan jika diperlukan',
+      currentPendingActorLabel:
+          request.currentPendingActorLabel ??
+          currentStep?.actorLabel ??
+          availableActions.firstOrNull?.actorLabel,
+      availableActions: availableActions,
+      timelineSteps: timelineSteps.isEmpty
+          ? _leaveTimeline(request)
+          : timelineSteps,
+      pdfPreviewUrl: pdfPreviewUrl,
+      pdfDownloadUrl: pdfDownloadUrl,
+      canPreviewPdf: request.canPreviewPdf,
+      createdAt: submittedAt,
+      rejectionReason: request.reviewerNotes,
+    );
+  }
+
+  SubmissionAction _adaptLeaveAction(LeaveActionItem action) {
+    return SubmissionAction(
+      action: action.action,
+      stepNumber: action.stepNumber,
+      stepName: action.stepName,
+      actorLabel: action.actorLabel,
+      label: action.label,
+      rejectLabel: action.rejectLabel,
+      notesPlaceholder: action.notesPlaceholder,
+      notesRequired: action.notesRequired,
+      canReject: action.canReject,
+      requiresSignature: action.requiresSignature,
+      canEditForm: action.canEditForm,
+    );
+  }
+
+  SubmissionTimelineStep _adaptLeaveTimelineStep(
+    LeaveApprovalStepItem step, {
+    required int? currentPendingStepId,
+  }) {
+    final status = step.status.trim().toLowerCase();
+    final approvedAt = step.approvedAt;
+    final actor = (step.approverName ?? '').trim().isNotEmpty
+        ? step.approverName!
+        : step.actorLabel;
+
+    return SubmissionTimelineStep(
+      id: step.id,
+      stepNumber: step.stepNumber,
+      title: step.stepName,
+      actor: actor,
+      statusLabel: _approvalStepStatusLabel(status),
+      timeLabel: approvedAt != null
+          ? _relativeTimeLabel(approvedAt)
+          : status == 'pending'
+          ? 'Menunggu tanda tangan'
+          : status == 'waiting'
+          ? 'Menunggu giliran'
+          : 'Belum diproses',
+      note: (step.notes ?? '').trim().isNotEmpty
+          ? step.notes!
+          : _approvalStepDefaultNote(status),
+      accentColor: _approvalStepAccentColor(status),
+      icon: _approvalStepIcon(status),
+      isActive: currentPendingStepId != null && step.id == currentPendingStepId,
+      requiresSignature: step.requiresSignature,
+    );
+  }
+
+  String _leaveSummary(LeaveRequestItem request) {
+    final dateRange = _formatDateRange(request.startDate, request.endDate);
+    final reason = request.reason.trim();
+
+    if (reason.isEmpty) {
+      return '$dateRange • ${request.durationLabel}';
+    }
+
+    return '$dateRange • $reason';
+  }
+
+  List<SubmissionField> _leaveDetailFields(LeaveRequestItem request) {
+    final fields = <SubmissionField>[
+      SubmissionField(
+        label: 'Jenis cuti',
+        value: request.leaveType?.name ?? 'Cuti',
+      ),
+      SubmissionField(
+        label: 'Tanggal',
+        value: _formatDateRange(request.startDate, request.endDate),
+      ),
+      SubmissionField(label: 'Durasi', value: request.durationLabel),
+      SubmissionField(
+        label: 'Departemen',
+        value: request.requesterDepartment?.trim().isNotEmpty == true
+            ? request.requesterDepartment!
+            : '-',
+      ),
+      SubmissionField(
+        label: 'Staff pengganti',
+        value: request.replacementName?.trim().isNotEmpty == true
+            ? request.replacementName!
+            : '-',
+      ),
+      SubmissionField(
+        label: 'Alasan',
+        value: request.reason.trim().isEmpty ? '-' : request.reason,
+      ),
+    ];
+
+    if ((request.emergencyContact ?? '').trim().isNotEmpty) {
+      fields.add(
+        SubmissionField(
+          label: 'Kontak darurat',
+          value: request.emergencyContact!,
+        ),
+      );
+    }
+
+    if ((request.reviewerNotes ?? '').trim().isNotEmpty) {
+      fields.add(
+        SubmissionField(
+          label: 'Catatan reviewer',
+          value: request.reviewerNotes!,
+        ),
+      );
+    }
+
+    return fields;
+  }
+
+  List<SubmissionTimelineStep> _leaveTimeline(LeaveRequestItem request) {
+    final status = request.status.trim().toLowerCase();
+    final submittedAt = request.submittedAt ?? request.createdAt;
+    final reviewedAt = request.reviewedAt;
+    final decisionLabel = switch (status) {
+      'approved' => 'Disetujui',
+      'rejected' => 'Ditolak',
+      'cancelled' => 'Dibatalkan',
+      _ => 'Menunggu',
+    };
+    final decisionColor = _leaveStatusColor(status);
+    final decisionIcon = switch (status) {
+      'approved' => Icons.check_circle_rounded,
+      'rejected' => Icons.cancel_rounded,
+      'cancelled' => Icons.remove_circle_rounded,
+      _ => Icons.schedule_rounded,
+    };
+
+    return [
+      SubmissionTimelineStep(
+        stepNumber: 1,
+        title: 'Pengajuan dikirim',
+        actor: request.requesterName ?? 'Karyawan',
+        statusLabel: 'Selesai',
+        timeLabel: _relativeTimeLabel(submittedAt),
+        note: 'Pengajuan cuti masuk ke antrean approval.',
+        accentColor: AppColors.emerald,
+        icon: Icons.send_rounded,
+      ),
+      SubmissionTimelineStep(
+        stepNumber: 2,
+        title: 'Review cuti',
+        actor: request.reviewerName ?? 'Approver Cuti',
+        statusLabel: decisionLabel,
+        timeLabel: reviewedAt == null
+            ? 'Menunggu keputusan'
+            : _relativeTimeLabel(reviewedAt),
+        note: (request.reviewerNotes ?? '').trim().isNotEmpty
+            ? request.reviewerNotes!
+            : status == 'pending'
+            ? 'Menunggu keputusan dari approver.'
+            : 'Pengajuan cuti sudah diproses.',
+        accentColor: decisionColor,
+        icon: decisionIcon,
+        isActive: status == 'pending',
+      ),
+    ];
   }
 
   SubmissionAction _adaptSubmissionAction(Map<String, dynamic> rawAction) {
@@ -924,6 +1396,19 @@ class WorkspaceDataController extends ChangeNotifier {
     }
   }
 
+  TaskSubmissionStatus _mapLeaveStatus(String rawStatus) {
+    switch (rawStatus.trim().toLowerCase()) {
+      case 'approved':
+        return TaskSubmissionStatus.leaveApproved;
+      case 'rejected':
+        return TaskSubmissionStatus.leaveRejected;
+      case 'cancelled':
+        return TaskSubmissionStatus.leaveCancelled;
+      default:
+        return TaskSubmissionStatus.leavePending;
+    }
+  }
+
   String? _resolveAutoFillValue(
     String? autoFill,
     AuthenticatedUser user,
@@ -995,12 +1480,30 @@ class WorkspaceDataController extends ChangeNotifier {
     return '${value.day} ${monthNames[value.month - 1]} ${value.year}';
   }
 
+  String _formatDateRange(DateTime start, DateTime end) {
+    if (_dateOnly(start) == _dateOnly(end)) {
+      return _formatDateValue(start);
+    }
+
+    if (start.year == end.year && start.month == end.month) {
+      return '${start.day}-${_formatDateValue(end)}';
+    }
+
+    return '${_formatDateValue(start)} - ${_formatDateValue(end)}';
+  }
+
+  DateTime _dateOnly(DateTime date) {
+    return DateTime(date.year, date.month, date.day);
+  }
+
   String _approvalStepStatusLabel(String status) {
     switch (status) {
       case 'approved':
         return 'Selesai';
       case 'rejected':
         return 'Ditolak';
+      case 'skipped':
+        return 'Dilewati';
       default:
         return 'Menunggu';
     }
@@ -1012,6 +1515,12 @@ class WorkspaceDataController extends ChangeNotifier {
         return 'Langkah ini sudah diproses.';
       case 'rejected':
         return 'Workflow dihentikan pada langkah ini.';
+      case 'pending':
+        return 'Menunggu tanda tangan dan keputusan approver.';
+      case 'waiting':
+        return 'Langkah ini akan aktif setelah tahap sebelumnya selesai.';
+      case 'skipped':
+        return 'Langkah ini tidak lagi perlu diproses.';
       default:
         return 'Langkah ini belum diproses.';
     }
@@ -1023,6 +1532,8 @@ class WorkspaceDataController extends ChangeNotifier {
         return AppColors.emerald;
       case 'rejected':
         return AppColors.red;
+      case 'skipped':
+        return AppColors.inkMuted;
       default:
         return AppColors.goldDeep;
     }
@@ -1034,6 +1545,8 @@ class WorkspaceDataController extends ChangeNotifier {
         return Icons.check_circle_rounded;
       case 'rejected':
         return Icons.cancel_rounded;
+      case 'skipped':
+        return Icons.remove_circle_rounded;
       default:
         return Icons.schedule_rounded;
     }
@@ -1058,13 +1571,27 @@ class WorkspaceDataController extends ChangeNotifier {
     }
   }
 
+  Color _leaveStatusColor(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'approved':
+        return AppColors.green;
+      case 'rejected':
+        return AppColors.red;
+      case 'cancelled':
+        return AppColors.inkMuted;
+      default:
+        return AppColors.amber;
+    }
+  }
+
   Color _formAccentColor({required String title, required String workflow}) {
     final normalizedTitle = title.toLowerCase();
     final normalizedWorkflow = workflow.toLowerCase();
 
-    if (normalizedTitle.contains('password') ||
-        normalizedWorkflow.contains('password')) {
-      return AppColors.blue;
+    if (normalizedTitle.contains('reimbursement') ||
+        normalizedTitle.contains('berobat') ||
+        normalizedWorkflow.contains('reimbursement')) {
+      return AppColors.emerald;
     }
 
     if (normalizedTitle.contains('pengadaan') ||
@@ -1075,13 +1602,24 @@ class WorkspaceDataController extends ChangeNotifier {
     return AppColors.gold;
   }
 
-  String _formCategory({required String title, required String workflow}) {
+  String _formCategory({
+    Map<String, dynamic> formConfig = const {},
+    required String title,
+    required String workflow,
+  }) {
+    final configuredCategory = _stringValue(formConfig['category'])?.trim();
+
+    if (configuredCategory != null && configuredCategory.isNotEmpty) {
+      return configuredCategory;
+    }
+
     final normalizedTitle = title.toLowerCase();
     final normalizedWorkflow = workflow.toLowerCase();
 
-    if (normalizedTitle.contains('password') ||
-        normalizedWorkflow.contains('password')) {
-      return 'IT Access';
+    if (normalizedTitle.contains('reimbursement') ||
+        normalizedTitle.contains('berobat') ||
+        normalizedWorkflow.contains('reimbursement')) {
+      return 'Reimbursement';
     }
 
     if (normalizedTitle.contains('pengadaan') ||
@@ -1100,6 +1638,24 @@ class WorkspaceDataController extends ChangeNotifier {
       return null;
     }
 
+    final rawType = (_stringValue(rawField['type']) ?? '').toLowerCase();
+
+    if (rawType == 'file') {
+      if (value is List) {
+        final fileNames = value
+            .map((item) => item.toString().trim().split('/').last)
+            .where((item) => item.isNotEmpty)
+            .toList(growable: false);
+
+        return fileNames.isEmpty ? null : fileNames.join(', ');
+      }
+
+      final normalizedFileValue = value.toString().trim();
+      return normalizedFileValue.isEmpty
+          ? null
+          : normalizedFileValue.split('/').last;
+    }
+
     if (value is List) {
       if (value.every((item) => item is Map)) {
         final procurementItems = _procurementSubmissionItems(value);
@@ -1115,14 +1671,9 @@ class WorkspaceDataController extends ChangeNotifier {
       return items.isEmpty ? null : items.join(', ');
     }
 
-    final rawType = (_stringValue(rawField['type']) ?? '').toLowerCase();
     final normalizedValue = value.toString().trim();
     if (normalizedValue.isEmpty) {
       return null;
-    }
-
-    if (rawType == 'file') {
-      return normalizedValue.split('/').last;
     }
 
     if (rawType == 'date') {
