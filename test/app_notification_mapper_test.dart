@@ -35,6 +35,13 @@ void main() {
           expectedDestination: NotificationDestination.chat,
         ),
         _NotificationLinkCase(
+          label: 'meeting invite',
+          type: 'meeting_invite',
+          link: '/meetings/77',
+          expectedType: AppNotificationType.meeting,
+          expectedDestination: NotificationDestination.meeting,
+        ),
+        _NotificationLinkCase(
           label: 'feed thread',
           type: 'feed_thread',
           link: '/feed/posts/19',

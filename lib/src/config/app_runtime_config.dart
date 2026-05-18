@@ -3,32 +3,42 @@ import 'package:flutter/foundation.dart';
 class AppRuntimeConfig {
   const AppRuntimeConfig._();
 
-  static const String _officeLanApiBaseUrl = 'http://192.168.1.24:8000';
-  static const String _previousOfficeLanApiBaseUrl = 'http://192.168.1.3:8000';
-  static const String _legacyOfficeLanApiBaseUrl = 'http://192.168.81.6:8000';
+  static const String _rawConfiguredApiBaseUrl = String.fromEnvironment(
+    'GESIT_API_BASE_URL',
+    defaultValue: '',
+  );
+  static const String _fallbackApiBaseUrl = 'http://192.168.1.24:8000';
+  static const List<String> _legacyApiBaseUrls = <String>[
+    'http://100.64.7.96:8000',
+    'http://192.168.1.22:8000',
+    'http://192.168.1.24:8000',
+    'http://192.168.1.3:8000',
+    'http://192.168.81.6:8000',
+  ];
 
   // Development override: change this one line when the mobile app needs a
   // different backend address, for example `http://192.168.1.10:8000`.
   static const String _debugApiBaseUrlOverride = '';
 
-  static const String _rawDefaultApiBaseUrl = String.fromEnvironment(
-    'GESIT_API_BASE_URL',
-    defaultValue: '',
-  );
   static const String _rawLongLivedRequestsOverride = String.fromEnvironment(
     'GESIT_ENABLE_LONG_LIVED_REQUESTS',
     defaultValue: '',
   );
 
+  static String get configuredApiBaseUrl {
+    final fromEnvironment = _rawConfiguredApiBaseUrl.trim();
+    return fromEnvironment.isNotEmpty ? fromEnvironment : _fallbackApiBaseUrl;
+  }
+
   static bool get hasExplicitApiBaseUrlOverride =>
-      _rawDefaultApiBaseUrl.trim().isNotEmpty;
+      _rawConfiguredApiBaseUrl.trim().isNotEmpty;
 
   static bool get _hasDevelopmentApiBaseUrlOverride =>
       hasExplicitApiBaseUrlOverride ||
       (kDebugMode && _debugApiBaseUrlOverride.trim().isNotEmpty);
 
   static String get defaultApiBaseUrl {
-    final fromEnvironment = _rawDefaultApiBaseUrl.trim();
+    final fromEnvironment = _rawConfiguredApiBaseUrl.trim();
     if (fromEnvironment.isNotEmpty) {
       return _normalizeExplicitBaseUrl(fromEnvironment);
     }
@@ -51,7 +61,7 @@ class AppRuntimeConfig {
 
     if (defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS) {
-      return _officeLanApiBaseUrl;
+      return _normalizeExplicitBaseUrl(configuredApiBaseUrl);
     }
 
     return 'http://127.0.0.1:8000';
@@ -79,6 +89,11 @@ class AppRuntimeConfig {
 
   static String normalizePersistedBaseUrl(String? rawValue) {
     final normalized = normalizeBaseUrl(rawValue);
+    if (_shouldForceConfiguredMobileBaseUrl &&
+        normalized != defaultApiBaseUrl) {
+      return defaultApiBaseUrl;
+    }
+
     if (_hasDevelopmentApiBaseUrlOverride && normalized != defaultApiBaseUrl) {
       return defaultApiBaseUrl;
     }
@@ -88,6 +103,15 @@ class AppRuntimeConfig {
     }
 
     return defaultApiBaseUrl;
+  }
+
+  static bool get _shouldForceConfiguredMobileBaseUrl {
+    if (kIsWeb) {
+      return false;
+    }
+
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
   }
 
   static String resolveHostedUrl(String baseUrl, String rawValue) {
@@ -201,8 +225,9 @@ class AppRuntimeConfig {
       return true;
     }
 
-    if ((normalized == _previousOfficeLanApiBaseUrl ||
-            normalized == _legacyOfficeLanApiBaseUrl) &&
+    if (_legacyApiBaseUrls
+            .map(_normalizeExplicitBaseUrl)
+            .contains(normalized) &&
         defaultApiBaseUrl != normalized) {
       return true;
     }
@@ -256,6 +281,10 @@ class AppRuntimeConfig {
     }
 
     if (numbers[0] == 172 && numbers[1] >= 16 && numbers[1] <= 31) {
+      return true;
+    }
+
+    if (numbers[0] == 100 && numbers[1] >= 64 && numbers[1] <= 127) {
       return true;
     }
 

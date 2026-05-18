@@ -51,8 +51,19 @@ class GesitApplication : FlutterApplication() {
             setSound(soundUri, ringtoneAudioAttributes)
         }
 
+        val meetingChannel = NotificationChannel(
+            MEETING_CHANNEL_ID,
+            MEETING_CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = MEETING_CHANNEL_DESCRIPTION
+            enableVibration(true)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setSound(soundUri, notificationAudioAttributes)
+        }
+
         getSystemService(NotificationManager::class.java).createNotificationChannels(
-            listOf(generalChannel, callChannel),
+            listOf(generalChannel, callChannel, meetingChannel),
         )
     }
 
@@ -62,9 +73,14 @@ class GesitApplication : FlutterApplication() {
         private const val GENERAL_CHANNEL_DESCRIPTION =
             "Notifikasi prioritas tinggi untuk aktivitas GESIT."
 
-        private const val CALL_CHANNEL_ID = "gesit.calls.incoming.v4"
+        private const val CALL_CHANNEL_ID = "gesit.calls.incoming.v5"
         private const val CALL_CHANNEL_NAME = "GESIT Calls"
         private const val CALL_CHANNEL_DESCRIPTION =
             "Notifikasi panggilan masuk GESIT dengan tampilan penuh."
+
+        private const val MEETING_CHANNEL_ID = "gesit.meetings.invites.v1"
+        private const val MEETING_CHANNEL_NAME = "GESIT Meetings"
+        private const val MEETING_CHANNEL_DESCRIPTION =
+            "Undangan dan pengingat meeting GESIT."
     }
 }

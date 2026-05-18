@@ -297,6 +297,17 @@ class GesitApiClient {
     return _getJson(baseUrl: baseUrl, path: '/api/forms', cookies: cookies);
   }
 
+  Future<JsonApiPayload> fetchHomeBanners({
+    required String baseUrl,
+    required Map<String, String> cookies,
+  }) {
+    return _getJson(
+      baseUrl: baseUrl,
+      path: '/api/mobile/home-banners',
+      cookies: cookies,
+    );
+  }
+
   Future<JsonApiPayload> fetchSubmissions({
     required String baseUrl,
     required Map<String, String> cookies,
@@ -1289,6 +1300,210 @@ class GesitApiClient {
     );
   }
 
+  Future<JsonApiPayload> fetchMeetings({
+    required String baseUrl,
+    required Map<String, String> cookies,
+  }) {
+    return _getJson(baseUrl: baseUrl, path: '/api/meetings', cookies: cookies);
+  }
+
+  Future<JsonApiPayload> fetchMeetingById({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String meetingId,
+  }) {
+    return _getJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings/$meetingId',
+      cookies: cookies,
+    );
+  }
+
+  Future<JsonApiPayload> createMeeting({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String title,
+    String agenda = '',
+    DateTime? startsAt,
+    List<String> participantUserIds = const <String>[],
+    List<String> cohostUserIds = const <String>[],
+    Map<String, dynamic> settings = const <String, dynamic>{},
+    String type = 'meeting',
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings',
+      cookies: cookies,
+      body: {
+        'title': title,
+        'agenda': agenda,
+        'type': type,
+        if (startsAt != null) 'starts_at': startsAt.toIso8601String(),
+        'participant_user_ids': participantUserIds,
+        'cohost_user_ids': cohostUserIds,
+        'settings': settings,
+      },
+    );
+  }
+
+  Future<JsonApiPayload> joinMeeting({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String meetingId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings/$meetingId/join',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> leaveMeeting({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String meetingId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings/$meetingId/leave',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> endMeeting({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String meetingId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings/$meetingId/end',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> createMeetingPoll({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String meetingId,
+    required String question,
+    required List<String> options,
+    bool allowMultiple = false,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings/$meetingId/polls',
+      cookies: cookies,
+      body: {
+        'question': question,
+        'options': options,
+        'allow_multiple': allowMultiple,
+      },
+    );
+  }
+
+  Future<JsonApiPayload> voteMeetingPoll({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String meetingId,
+    required String pollId,
+    required List<int> optionIndexes,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings/$meetingId/polls/$pollId/vote',
+      cookies: cookies,
+      body: {'option_indexes': optionIndexes},
+    );
+  }
+
+  Future<JsonApiPayload> closeMeetingPoll({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String meetingId,
+    required String pollId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings/$meetingId/polls/$pollId/close',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> admitMeetingParticipant({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String meetingId,
+    required String participantId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings/$meetingId/participants/$participantId/admit',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> rejectMeetingParticipant({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String meetingId,
+    required String participantId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings/$meetingId/participants/$participantId/reject',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> promoteMeetingParticipant({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String meetingId,
+    required String participantId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings/$meetingId/participants/$participantId/promote',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> demoteMeetingParticipant({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String meetingId,
+    required String participantId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings/$meetingId/participants/$participantId/demote',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
+  Future<JsonApiPayload> removeMeetingParticipant({
+    required String baseUrl,
+    required Map<String, String> cookies,
+    required String meetingId,
+    required String participantId,
+  }) {
+    return _postJson(
+      baseUrl: baseUrl,
+      path: '/api/meetings/$meetingId/participants/$participantId/remove',
+      cookies: cookies,
+      body: const {},
+    );
+  }
+
   void close() {
     _httpClient.close();
   }
@@ -1637,6 +1852,15 @@ class GesitApiClient {
         for (final entry in value.entries) {
           final nestedKey = '$key[${entry.key}]';
           visit(nestedKey, entry.value);
+        }
+        return;
+      }
+
+      if (value is Iterable && value is! String) {
+        var index = 0;
+        for (final item in value) {
+          visit('$key[$index]', item);
+          index += 1;
         }
         return;
       }

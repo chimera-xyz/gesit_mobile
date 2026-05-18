@@ -177,6 +177,55 @@ void main() {
     expect(bodyFields['action_key'], 's21plus_contact_it');
   });
 
+  test(
+    'browser managed meeting creation serializes arrays as form fields',
+    () async {
+      late http.Request capturedRequest;
+
+      final client = GesitApiClient(
+        httpClient: MockClient((request) async {
+          capturedRequest = request;
+          return _jsonResponse({
+            'meeting': {'id': 4},
+          }, statusCode: 201);
+        }),
+        browserManagedCookies: true,
+      );
+
+      await client.createMeeting(
+        baseUrl: 'http://127.0.0.1:8000',
+        cookies: const {},
+        title: 'Daily IT',
+        agenda: 'Sync kerja harian',
+        participantUserIds: const ['10', '11'],
+        cohostUserIds: const ['11'],
+        settings: const {
+          'waiting_room_enabled': false,
+          'record_by_default': true,
+          'allow_participant_screen_share': true,
+          'chat_enabled': true,
+          'polls_enabled': false,
+        },
+      );
+
+      final bodyFields = Uri.splitQueryString(capturedRequest.body);
+
+      expect(capturedRequest.url.path, '/api/meetings');
+      expect(
+        capturedRequest.headers['content-type'],
+        contains('application/x-www-form-urlencoded'),
+      );
+      expect(bodyFields['title'], 'Daily IT');
+      expect(bodyFields['agenda'], 'Sync kerja harian');
+      expect(bodyFields['participant_user_ids[0]'], '10');
+      expect(bodyFields['participant_user_ids[1]'], '11');
+      expect(bodyFields['cohost_user_ids[0]'], '11');
+      expect(bodyFields['settings[waiting_room_enabled]'], '0');
+      expect(bodyFields['settings[record_by_default]'], '1');
+      expect(bodyFields['settings[polls_enabled]'], '0');
+    },
+  );
+
   test('submission PDF preview fetches bytes with session cookies', () async {
     late http.Request capturedRequest;
     final client = GesitApiClient(

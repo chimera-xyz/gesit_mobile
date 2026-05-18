@@ -114,59 +114,118 @@ class _LeaveDashboardScreenState extends State<LeaveDashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: const Text('Cuti'),
-        actions: [
+      body: GesitBackground(
+        child: SafeArea(
+          child: Column(
+            children: [
+              _LeaveTopBar(
+                onBack: () => Navigator.of(context).pop(),
+                onRefresh: () => unawaited(widget.controller.refresh()),
+              ),
+              Expanded(
+                child: AnimatedBuilder(
+                  animation: widget.controller,
+                  builder: (context, _) {
+                    final dashboard = widget.controller.dashboard;
+
+                    return RefreshIndicator(
+                      onRefresh: widget.controller.refresh,
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 34),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _LeaveHeader(
+                              loading: widget.controller.loading,
+                              usingFallback: widget.controller.usingFallback,
+                              error: widget.controller.error,
+                            ),
+                            const SizedBox(height: 18),
+                            _BalanceOverview(
+                              balance: dashboard.balance,
+                              summary: dashboard.summary,
+                            ),
+                            const SizedBox(height: 14),
+                            _PrimaryLeaveAction(
+                              onPressed: _openLeaveRequestSheet,
+                            ),
+                            const SizedBox(height: 24),
+                            _LongWeekendSection(items: dashboard.longWeekends),
+                            const SizedBox(height: 24),
+                            _CalendarSection(
+                              events: dashboard.calendar,
+                              holidays: dashboard.holidays,
+                            ),
+                            const SizedBox(height: 24),
+                            _RequestHistorySection(
+                              requests: dashboard.requests,
+                              onOpen: _openLeaveDetail,
+                              onCancel: _cancelRequest,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LeaveTopBar extends StatelessWidget {
+  const _LeaveTopBar({required this.onBack, required this.onRefresh});
+
+  final VoidCallback onBack;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      child: Row(
+        children: [
           IconButton(
+            onPressed: onBack,
+            tooltip: 'Kembali',
+            style: IconButton.styleFrom(
+              backgroundColor: AppColors.surface.withValues(alpha: 0.92),
+              foregroundColor: AppColors.ink,
+              side: const BorderSide(color: AppColors.border),
+            ),
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Cuti',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: textTheme.titleLarge?.copyWith(
+                color: AppColors.ink,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          IconButton(
+            onPressed: onRefresh,
             tooltip: 'Refresh',
-            onPressed: () => unawaited(widget.controller.refresh()),
+            style: IconButton.styleFrom(
+              backgroundColor: AppColors.surface.withValues(alpha: 0.92),
+              foregroundColor: AppColors.ink,
+              side: const BorderSide(color: AppColors.border),
+            ),
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
-      ),
-      body: AnimatedBuilder(
-        animation: widget.controller,
-        builder: (context, _) {
-          final dashboard = widget.controller.dashboard;
-
-          return RefreshIndicator(
-            onRefresh: widget.controller.refresh,
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 34),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _LeaveHeader(
-                    loading: widget.controller.loading,
-                    usingFallback: widget.controller.usingFallback,
-                    error: widget.controller.error,
-                  ),
-                  const SizedBox(height: 18),
-                  _BalanceOverview(
-                    balance: dashboard.balance,
-                    summary: dashboard.summary,
-                  ),
-                  const SizedBox(height: 14),
-                  _PrimaryLeaveAction(onPressed: _openLeaveRequestSheet),
-                  const SizedBox(height: 24),
-                  _LongWeekendSection(items: dashboard.longWeekends),
-                  const SizedBox(height: 24),
-                  _CalendarSection(
-                    events: dashboard.calendar,
-                    holidays: dashboard.holidays,
-                  ),
-                  const SizedBox(height: 24),
-                  _RequestHistorySection(
-                    requests: dashboard.requests,
-                    onOpen: _openLeaveDetail,
-                    onCancel: _cancelRequest,
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
       ),
     );
   }

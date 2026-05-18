@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum AppShellModule { home, tasks, forms, chat, profile }
+enum AppShellModule { home, tasks, forms, chat, meeting, profile }
 
 extension AppShellModuleX on AppShellModule {
   String get label {
@@ -13,6 +13,8 @@ extension AppShellModuleX on AppShellModule {
         return 'Forms';
       case AppShellModule.chat:
         return 'Chat';
+      case AppShellModule.meeting:
+        return 'Meeting';
       case AppShellModule.profile:
         return 'Profile';
     }
@@ -28,6 +30,8 @@ extension AppShellModuleX on AppShellModule {
         return Icons.description_rounded;
       case AppShellModule.chat:
         return Icons.forum_rounded;
+      case AppShellModule.meeting:
+        return Icons.video_camera_front_rounded;
       case AppShellModule.profile:
         return Icons.person_rounded;
     }
@@ -218,6 +222,8 @@ class AuthenticatedUser {
     // catalogue does not expose it yet, so authenticated staff still see it.
     return true;
   }
+
+  bool get canAccessMeeting => canAccessChat;
 }
 
 class AppSession {
@@ -290,6 +296,32 @@ class AppSession {
       modules.add(AppShellModule.chat);
     }
 
+    if (user.canAccessMeeting) {
+      modules.add(AppShellModule.meeting);
+    }
+
+    modules.add(AppShellModule.profile);
+
+    return modules;
+  }
+
+  List<AppShellModule> get bottomNavigationModules {
+    final modules = <AppShellModule>[AppShellModule.home];
+
+    if (user.canAccessTasks) {
+      modules.add(AppShellModule.tasks);
+    }
+
+    if (user.canAccessMeeting) {
+      modules.add(AppShellModule.meeting);
+    } else if (user.canAccessForms) {
+      modules.add(AppShellModule.forms);
+    }
+
+    if (user.canAccessChat) {
+      modules.add(AppShellModule.chat);
+    }
+
     modules.add(AppShellModule.profile);
 
     return modules;
@@ -310,6 +342,8 @@ class AppSession {
   bool get canAccessKnowledgeHub => user.canAccessKnowledgeHub;
 
   bool get canAccessChat => user.canAccessChat;
+
+  bool get canAccessMeeting => user.canAccessMeeting;
 }
 
 String? _normalizedString(Object? value) {

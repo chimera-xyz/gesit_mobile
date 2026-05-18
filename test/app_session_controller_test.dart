@@ -6,6 +6,7 @@ import 'package:gesit_app/src/config/app_runtime_config.dart';
 import 'package:gesit_app/src/data/app_session_controller.dart';
 import 'package:gesit_app/src/data/gesit_api_client.dart';
 import 'package:gesit_app/src/data/session_store.dart';
+import 'package:gesit_app/src/data/server_endpoint_resolver.dart';
 import 'package:gesit_app/src/models/session_models.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -64,6 +65,7 @@ void main() {
             }),
           ),
           browserManagedCookies: true,
+          endpointResolver: _reachableEndpointResolver(),
         );
         addTearDown(controller.dispose);
 
@@ -103,6 +105,7 @@ void main() {
               return http.Response('', 204);
             }),
           ),
+          endpointResolver: _reachableEndpointResolver(),
         );
         addTearDown(controller.dispose);
 
@@ -163,6 +166,7 @@ void main() {
               throw TimeoutException('backend timeout');
             }),
           ),
+          endpointResolver: _reachableEndpointResolver(),
         );
         addTearDown(controller.dispose);
 
@@ -172,6 +176,139 @@ void main() {
         expect(controller.session?.user.email, 'raihan@example.com');
         expect(controller.session?.cookies['gesit_session'], 'stored-session');
         expect(await SessionStore.readSession(), isNotNull);
+      },
+    );
+
+    test(
+      'bootstrap keeps a stored session without prompting when endpoint discovery fails',
+      () async {
+        await SessionStore.writeRememberSession(true);
+        await SessionStore.writeSession(
+          AppSession(
+            user: const AuthenticatedUser(
+              id: 'user-1',
+              name: 'Raihan Carjasti',
+              email: 'raihan@example.com',
+              roles: ['IT Staff'],
+              permissions: ['view submissions'],
+            ),
+            apiBaseUrl: 'http://localhost:8000',
+            cookies: const {'gesit_session': 'stored-session'},
+            rememberSession: true,
+            authenticatedAt: DateTime(2026, 4, 19, 8, 30),
+          ),
+        );
+
+        final controller = AppSessionController(
+          apiClient: GesitApiClient(
+            httpClient: MockClient((request) async {
+              fail('bootstrap should not fetch the user before reconnecting');
+            }),
+          ),
+          endpointResolver: ServerEndpointResolver(
+            probe: (baseUrl, timeout) async => false,
+          ),
+        );
+        addTearDown(controller.dispose);
+
+        await controller.bootstrap();
+
+        expect(controller.status, AppSessionStatus.authenticated);
+        expect(controller.session?.cookies['gesit_session'], 'stored-session');
+      },
+    );
+
+    test(
+      'stale unauthorized responses cannot invalidate a newer session',
+      () async {
+        final controller = AppSessionController(
+          apiClient: GesitApiClient(),
+          endpointResolver: _reachableEndpointResolver(),
+        );
+        addTearDown(controller.dispose);
+
+        await controller.syncSession(
+          AppSession(
+            user: const AuthenticatedUser(
+              id: 'user-1',
+              name: 'Raihan Carjasti',
+              email: 'raihan@example.com',
+              roles: ['IT Staff'],
+              permissions: ['view submissions'],
+            ),
+            apiBaseUrl: 'http://localhost:8000',
+            cookies: const {'gesit_session': 'old-session'},
+            rememberSession: true,
+            authenticatedAt: DateTime(2026, 4, 19, 8, 30),
+          ),
+          notify: false,
+        );
+        final staleSession = controller.session!;
+
+        await controller.syncSession(
+          AppSession(
+            user: const AuthenticatedUser(
+              id: 'user-1',
+              name: 'Raihan Carjasti',
+              email: 'raihan@example.com',
+              roles: ['IT Staff'],
+              permissions: ['view submissions'],
+            ),
+            apiBaseUrl: 'http://localhost:8000',
+            cookies: const {'gesit_session': 'new-session'},
+            rememberSession: true,
+            authenticatedAt: DateTime(2026, 4, 19, 8, 31),
+          ),
+          notify: false,
+        );
+
+        await controller.invalidateSession(
+          errorMessage: 'Unauthenticated.',
+          expectedSession: staleSession,
+        );
+
+        expect(controller.status, AppSessionStatus.authenticated);
+        expect(controller.session?.cookies['gesit_session'], 'new-session');
+        expect(controller.errorMessage, isNull);
+      },
+    );
+
+    test(
+      'current unauthorized responses expose a friendly session message',
+      () async {
+        final controller = AppSessionController(
+          apiClient: GesitApiClient(),
+          endpointResolver: _reachableEndpointResolver(),
+        );
+        addTearDown(controller.dispose);
+
+        await controller.syncSession(
+          AppSession(
+            user: const AuthenticatedUser(
+              id: 'user-1',
+              name: 'Raihan Carjasti',
+              email: 'raihan@example.com',
+              roles: ['IT Staff'],
+              permissions: ['view submissions'],
+            ),
+            apiBaseUrl: 'http://localhost:8000',
+            cookies: const {'gesit_session': 'current-session'},
+            rememberSession: true,
+            authenticatedAt: DateTime(2026, 4, 19, 8, 30),
+          ),
+          notify: false,
+        );
+
+        await controller.invalidateSession(
+          errorMessage: 'Unauthenticated.',
+          expectedSession: controller.session,
+        );
+
+        expect(controller.status, AppSessionStatus.unauthenticated);
+        expect(
+          controller.errorMessage,
+          'Sesi login berakhir. Silakan masuk lagi.',
+        );
       },
     );
 
@@ -203,6 +340,7 @@ void main() {
               }, statusCode: 401);
             }),
           ),
+          endpointResolver: _reachableEndpointResolver(),
         );
         addTearDown(controller.dispose);
 
@@ -211,6 +349,94 @@ void main() {
         expect(controller.status, AppSessionStatus.unauthenticated);
         expect(controller.session, isNull);
         expect(await SessionStore.readSession(), isNull);
+      },
+    );
+
+    test(
+      'bootstrap migrates the legacy Tailscale API route to the configured endpoint',
+      () async {
+        final probes = <String>[];
+        await SessionStore.writeRememberSession(true);
+        await SessionStore.writeSession(
+          AppSession(
+            user: const AuthenticatedUser(
+              id: 'user-1',
+              name: 'Raihan Carjasti',
+              email: 'raihan@example.com',
+              roles: ['IT Staff'],
+              permissions: ['view submissions'],
+            ),
+            apiBaseUrl: 'http://100.64.7.96:8000',
+            cookies: const {'gesit_session': 'stored-session'},
+            rememberSession: true,
+            authenticatedAt: DateTime(2026, 4, 19, 8, 30),
+          ),
+        );
+
+        final controller = AppSessionController(
+          apiClient: GesitApiClient(
+            httpClient: MockClient((request) async {
+              expect(
+                request.url.toString(),
+                '${AppRuntimeConfig.defaultApiBaseUrl}/api/user',
+              );
+              return _jsonResponse({
+                'user': {
+                  'id': 'user-1',
+                  'name': 'Raihan Carjasti',
+                  'email': 'raihan@example.com',
+                },
+                'roles': ['IT Staff'],
+                'permissions': ['view submissions'],
+              });
+            }),
+          ),
+          endpointResolver: ServerEndpointResolver(
+            probe: (baseUrl, timeout) async {
+              probes.add(baseUrl);
+              return baseUrl == AppRuntimeConfig.defaultApiBaseUrl;
+            },
+          ),
+        );
+        addTearDown(controller.dispose);
+
+        await controller.bootstrap();
+
+        expect(controller.status, AppSessionStatus.authenticated);
+        expect(
+          controller.session?.apiBaseUrl,
+          AppRuntimeConfig.defaultApiBaseUrl,
+        );
+        expect(probes, [AppRuntimeConfig.defaultApiBaseUrl]);
+      },
+    );
+
+    test(
+      'signIn returns a connection error when the configured endpoint is unreachable',
+      () async {
+        final controller = AppSessionController(
+          apiClient: GesitApiClient(
+            httpClient: MockClient((request) async {
+              fail('sign in should not run before a server is resolved');
+            }),
+          ),
+          endpointResolver: ServerEndpointResolver(
+            probe: (baseUrl, timeout) async => false,
+          ),
+        );
+        addTearDown(controller.dispose);
+
+        await controller.signIn(
+          email: 'raihan@example.com',
+          password: 'super-secret',
+          rememberSession: true,
+        );
+
+        expect(controller.status, AppSessionStatus.unauthenticated);
+        expect(
+          controller.errorMessage,
+          'GESIT belum bisa terhubung ke server. Periksa alamat API atau jaringan Anda.',
+        );
       },
     );
   });
@@ -305,4 +531,8 @@ http.Response _jsonResponse(Map<String, dynamic> body, {int statusCode = 200}) {
     statusCode,
     headers: {'content-type': 'application/json'},
   );
+}
+
+ServerEndpointResolver _reachableEndpointResolver() {
+  return ServerEndpointResolver(probe: (baseUrl, timeout) async => true);
 }

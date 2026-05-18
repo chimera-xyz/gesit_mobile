@@ -8,6 +8,7 @@ import '../models/session_models.dart';
 import 'gesit_api_client.dart';
 import 'gesit_http_client_factory.dart';
 import 'session_store.dart';
+import 'server_endpoint_resolver.dart';
 
 enum AppSessionStatus { bootstrapping, authenticated, unauthenticated }
 
@@ -15,11 +16,16 @@ class AppSessionController extends ChangeNotifier {
   AppSessionController({
     required GesitApiClient apiClient,
     bool? browserManagedCookies,
+    ServerEndpointResolver? endpointResolver,
   }) : _apiClient = apiClient,
+       _endpointResolver = endpointResolver ?? ServerEndpointResolver(),
+       _ownsEndpointResolver = endpointResolver == null,
        _browserManagedCookies =
            browserManagedCookies ?? usesBrowserManagedCookies;
 
   final GesitApiClient _apiClient;
+  final ServerEndpointResolver _endpointResolver;
+  final bool _ownsEndpointResolver;
   final bool _browserManagedCookies;
 
   AppSessionStatus _status = AppSessionStatus.bootstrapping;
@@ -61,8 +67,12 @@ class AppSessionController extends ChangeNotifier {
       await SessionStore.writeApiBaseUrl(_apiBaseUrlDraft);
     }
     _rememberSession = await SessionStore.readRememberSession();
-
     final storedSession = await SessionStore.readSession();
+    final resolvedStartupEndpoint = await _resolveApiBaseUrl(
+      preferredBaseUrl: _apiBaseUrlDraft,
+      setErrorOnFailure: storedSession == null,
+    );
+
     if (!_rememberSession) {
       await SessionStore.clearSession(keepApiBaseUrl: true);
       _session = null;
@@ -78,9 +88,15 @@ class AppSessionController extends ChangeNotifier {
       return;
     }
 
-    final normalizedBaseUrl = AppRuntimeConfig.normalizePersistedBaseUrl(
-      storedSession?.apiBaseUrl ?? _apiBaseUrlDraft,
-    );
+    final normalizedBaseUrl = _apiBaseUrlDraft;
+    if (!resolvedStartupEndpoint) {
+      await _restoreStoredSessionAfterConnectivityFailure(
+        storedSession,
+        normalizedBaseUrl,
+      );
+      _notifyListenersSafely();
+      return;
+    }
     if (_apiBaseUrlDraft != normalizedBaseUrl) {
       _apiBaseUrlDraft = normalizedBaseUrl;
       await SessionStore.writeApiBaseUrl(_apiBaseUrlDraft);
@@ -171,12 +187,24 @@ class AppSessionController extends ChangeNotifier {
     _busy = true;
     _errorMessage = null;
     _rememberSession = rememberSession;
-    _apiBaseUrlDraft = AppRuntimeConfig.normalizeBaseUrl(
+    _apiBaseUrlDraft = AppRuntimeConfig.normalizePersistedBaseUrl(
       baseUrl ?? _apiBaseUrlDraft,
     );
     _notifyListenersSafely();
 
     try {
+      final resolved = await _resolveApiBaseUrl(
+        preferredBaseUrl: _apiBaseUrlDraft,
+        setErrorOnFailure: true,
+      );
+      if (!resolved) {
+        _session = null;
+        _status = AppSessionStatus.unauthenticated;
+        _errorMessage =
+            'GESIT belum bisa terhubung ke server. Periksa alamat API atau jaringan Anda.';
+        return;
+      }
+
       await SessionStore.writeApiBaseUrl(_apiBaseUrlDraft);
       await SessionStore.writeRememberSession(rememberSession);
 
@@ -226,12 +254,24 @@ class AppSessionController extends ChangeNotifier {
     _busy = true;
     _errorMessage = null;
     _rememberSession = true;
-    _apiBaseUrlDraft = AppRuntimeConfig.normalizeBaseUrl(
+    _apiBaseUrlDraft = AppRuntimeConfig.normalizePersistedBaseUrl(
       baseUrl ?? _apiBaseUrlDraft,
     );
     _notifyListenersSafely();
 
     try {
+      final resolved = await _resolveApiBaseUrl(
+        preferredBaseUrl: _apiBaseUrlDraft,
+        setErrorOnFailure: true,
+      );
+      if (!resolved) {
+        _session = null;
+        _status = AppSessionStatus.unauthenticated;
+        _errorMessage =
+            'GESIT belum bisa terhubung ke server untuk login fingerprint.';
+        return null;
+      }
+
       await SessionStore.writeApiBaseUrl(_apiBaseUrlDraft);
       await SessionStore.writeRememberSession(true);
 
@@ -365,10 +405,43 @@ class AppSessionController extends ChangeNotifier {
     }
   }
 
-  Future<void> updateApiBaseUrl(String value) async {
-    _apiBaseUrlDraft = AppRuntimeConfig.normalizeBaseUrl(value);
-    await SessionStore.writeApiBaseUrl(_apiBaseUrlDraft);
-    _notifyListenersSafely();
+  Future<bool> _resolveApiBaseUrl({
+    required String? preferredBaseUrl,
+    required bool setErrorOnFailure,
+  }) async {
+    final candidate = await _endpointResolver.resolve(
+      preferredBaseUrl: preferredBaseUrl,
+    );
+
+    if (candidate == null) {
+      _errorMessage = setErrorOnFailure
+          ? 'GESIT belum bisa terhubung ke server. Periksa alamat API atau jaringan Anda.'
+          : _errorMessage;
+      return false;
+    }
+
+    await _applyResolvedApiBaseUrl(candidate.baseUrl);
+    return true;
+  }
+
+  Future<void> _applyResolvedApiBaseUrl(String baseUrl) async {
+    final normalizedBaseUrl = AppRuntimeConfig.normalizeBaseUrl(baseUrl);
+    _apiBaseUrlDraft = normalizedBaseUrl;
+    await SessionStore.writeApiBaseUrl(normalizedBaseUrl);
+
+    final currentSession = _session;
+    if (currentSession == null) {
+      return;
+    }
+
+    final updatedSession = currentSession.copyWith(
+      apiBaseUrl: normalizedBaseUrl,
+      authenticatedAt: DateTime.now(),
+    );
+    _session = updatedSession;
+    if (updatedSession.rememberSession) {
+      await SessionStore.writeSession(updatedSession);
+    }
   }
 
   Future<void> syncSession(AppSession session, {bool notify = true}) async {
@@ -412,12 +485,19 @@ class AppSessionController extends ChangeNotifier {
     );
   }
 
-  Future<void> invalidateSession({String? errorMessage}) async {
+  Future<void> invalidateSession({
+    String? errorMessage,
+    AppSession? expectedSession,
+  }) async {
+    if (expectedSession != null && !identical(_session, expectedSession)) {
+      return;
+    }
+
     _session = null;
     _status = AppSessionStatus.unauthenticated;
     _busy = false;
     _rememberSession = false;
-    _errorMessage = errorMessage;
+    _errorMessage = _normalizedInvalidationMessage(errorMessage);
     await SessionStore.writeRememberSession(false);
     await SessionStore.clearSession(keepApiBaseUrl: true);
     _notifyListenersSafely();
@@ -430,6 +510,20 @@ class AppSessionController extends ChangeNotifier {
 
     _errorMessage = null;
     _notifyListenersSafely();
+  }
+
+  String? _normalizedInvalidationMessage(String? message) {
+    final normalized = message?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return normalized;
+    }
+
+    final lowerCase = normalized.toLowerCase();
+    if (lowerCase == 'unauthenticated' || lowerCase == 'unauthenticated.') {
+      return 'Sesi login berakhir. Silakan masuk lagi.';
+    }
+
+    return normalized;
   }
 
   void _notifyListenersSafely() {
@@ -464,6 +558,9 @@ class AppSessionController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _apiClient.close();
+    if (_ownsEndpointResolver) {
+      _endpointResolver.close();
+    }
     super.dispose();
   }
 }

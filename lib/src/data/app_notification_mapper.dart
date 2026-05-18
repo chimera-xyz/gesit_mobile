@@ -26,13 +26,34 @@ AppNotification appNotificationFromRemotePayload(Map<String, dynamic> payload) {
     createdAt:
         DateTime.tryParse('${payload['created_at'] ?? ''}') ?? DateTime.now(),
     isRead: payload['is_read'] == true,
-    storesInCenter: payload['stores_in_center'] != false,
+    storesInCenter: _boolFromPayload(
+      payload['stores_in_center'],
+      fallback: true,
+    ),
     destination: destination,
     link: link,
     primaryActionLabel:
         _normalizedString(payload['primary_action_label']) ??
         _primaryActionLabel(destination),
   );
+}
+
+bool _boolFromPayload(Object? value, {required bool fallback}) {
+  if (value == null) {
+    return fallback;
+  }
+  if (value is bool) {
+    return value;
+  }
+  final normalized = '$value'.trim().toLowerCase();
+  if (normalized.isEmpty || normalized == 'null') {
+    return fallback;
+  }
+  return switch (normalized) {
+    '1' || 'true' || 'yes' || 'y' => true,
+    '0' || 'false' || 'no' || 'n' => false,
+    _ => fallback,
+  };
 }
 
 AppNotification appNotificationFromPushPayload(
@@ -66,6 +87,9 @@ AppNotificationType _typeFromPayload(String rawType, String? link) {
       return AppNotificationType.chat;
     case 'chat_call':
       return AppNotificationType.call;
+    case 'meeting_invite':
+    case 'meeting_reminder':
+      return AppNotificationType.meeting;
     case 'feed_thread':
     case 'feed_comment':
     case 'feed_mention':
@@ -89,6 +113,9 @@ AppNotificationType _typeFromPayload(String rawType, String? link) {
       if (link != null && link.contains('/knowledge-hub')) {
         return AppNotificationType.knowledge;
       }
+      if (link != null && link.contains('/meetings')) {
+        return AppNotificationType.meeting;
+      }
       return AppNotificationType.system;
     default:
       return AppNotificationType.system;
@@ -105,6 +132,9 @@ NotificationDestination _destinationFromLink(String? link) {
   }
   if (link.contains('/chat/conversations')) {
     return NotificationDestination.chat;
+  }
+  if (link.contains('/meetings')) {
+    return NotificationDestination.meeting;
   }
   if (link.contains('/helpdesk')) {
     return NotificationDestination.helpdesk;
@@ -140,6 +170,8 @@ String _detailFromDestination(NotificationDestination destination) {
       return 'Buka modul Helpdesk untuk melihat tiket terkait.';
     case NotificationDestination.chat:
       return 'Buka modul Chat untuk melihat percakapan terbaru.';
+    case NotificationDestination.meeting:
+      return 'Buka meeting untuk bergabung ke ruang koordinasi.';
     case NotificationDestination.knowledgeHub:
       return 'Buka Knowledge Hub untuk melihat dokumen terkait.';
     case NotificationDestination.leave:
@@ -163,6 +195,8 @@ String? _primaryActionLabel(NotificationDestination destination) {
       return 'Buka tiket';
     case NotificationDestination.chat:
       return 'Buka chat';
+    case NotificationDestination.meeting:
+      return 'Buka meeting';
     case NotificationDestination.knowledgeHub:
       return 'Buka hub';
     case NotificationDestination.leave:

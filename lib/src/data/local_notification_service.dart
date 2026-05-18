@@ -13,12 +13,19 @@ const String _generalChannelName = 'GESIT Alerts';
 const String _generalChannelDescription =
     'Notifikasi prioritas tinggi untuk aktivitas GESIT.';
 
-const String _callChannelId = 'gesit.calls.incoming.v4';
+const String _callChannelId = 'gesit.calls.incoming.v5';
 const String _callChannelName = 'GESIT Calls';
 const String _callChannelDescription =
     'Notifikasi panggilan masuk GESIT dengan tampilan penuh.';
 
+const String _meetingChannelId = 'gesit.meetings.invites.v1';
+const String _meetingChannelName = 'GESIT Meetings';
+const String _meetingChannelDescription =
+    'Undangan dan pengingat meeting GESIT.';
+
 const String _androidNotificationSoundName = 'yulie_sekuritas_notifikasi_v2';
+const String _answerCallActionId = 'gesit_call_answer';
+const String _declineCallActionId = 'gesit_call_decline';
 const MethodChannel _notificationAudioChannel = MethodChannel(
   'gesit/notification_audio',
 );
@@ -199,6 +206,19 @@ class LocalNotificationService {
         ),
       ),
     );
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        _meetingChannelId,
+        _meetingChannelName,
+        description: _meetingChannelDescription,
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+        sound: RawResourceAndroidNotificationSound(
+          _androidNotificationSoundName,
+        ),
+      ),
+    );
 
     _pluginInitialized = true;
   }
@@ -235,16 +255,25 @@ class LocalNotificationService {
     String? body,
   ) {
     final isCall = envelope.isCall;
+    final isMeeting = envelope.isMeeting && !isCall;
 
     return AndroidNotificationDetails(
-      isCall ? _callChannelId : _generalChannelId,
-      isCall ? _callChannelName : _generalChannelName,
+      isCall
+          ? _callChannelId
+          : (isMeeting ? _meetingChannelId : _generalChannelId),
+      isCall
+          ? _callChannelName
+          : (isMeeting ? _meetingChannelName : _generalChannelName),
       channelDescription: isCall
           ? _callChannelDescription
-          : _generalChannelDescription,
+          : (isMeeting
+                ? _meetingChannelDescription
+                : _generalChannelDescription),
       category: isCall
           ? AndroidNotificationCategory.call
-          : AndroidNotificationCategory.message,
+          : (isMeeting
+                ? AndroidNotificationCategory.event
+                : AndroidNotificationCategory.message),
       importance: Importance.max,
       priority: Priority.high,
       visibility: NotificationVisibility.public,
@@ -260,6 +289,20 @@ class LocalNotificationService {
       fullScreenIntent: isCall,
       timeoutAfter: isCall ? 25000 : null,
       enableVibration: true,
+      actions: isCall
+          ? const <AndroidNotificationAction>[
+              AndroidNotificationAction(
+                _declineCallActionId,
+                'Tolak',
+                showsUserInterface: true,
+              ),
+              AndroidNotificationAction(
+                _answerCallActionId,
+                'Terima',
+                showsUserInterface: true,
+              ),
+            ]
+          : const <AndroidNotificationAction>[],
       styleInformation: BigTextStyleInformation(
         body ?? 'Ada notifikasi baru untuk Anda.',
       ),
@@ -267,7 +310,12 @@ class LocalNotificationService {
   }
 
   void _handleNotificationResponse(NotificationResponse response) {
-    final envelope = PushNotificationEnvelope.fromPayload(response.payload);
+    final parsedEnvelope = PushNotificationEnvelope.fromPayload(
+      response.payload,
+    );
+    final envelope = parsedEnvelope == null
+        ? null
+        : _envelopeForResponseAction(parsedEnvelope, response.actionId);
     if (envelope == null) {
       return;
     }
@@ -278,6 +326,39 @@ class LocalNotificationService {
     }
 
     _pendingOpenMessage = envelope;
+  }
+
+  PushNotificationEnvelope _envelopeForResponseAction(
+    PushNotificationEnvelope envelope,
+    String? actionId,
+  ) {
+    if (actionId != _answerCallActionId && actionId != _declineCallActionId) {
+      return envelope;
+    }
+
+    final data = Map<String, String>.from(envelope.data);
+    data['notification_action'] = actionId == _answerCallActionId
+        ? 'answer'
+        : 'decline';
+
+    final rawLink = envelope.link;
+    final uri = rawLink == null ? null : Uri.tryParse(rawLink);
+    if (uri != null) {
+      data['link'] = uri
+          .replace(
+            queryParameters: {
+              ...uri.queryParameters,
+              'notification_action': data['notification_action']!,
+            },
+          )
+          .toString();
+    }
+
+    return PushNotificationEnvelope(
+      data: data,
+      title: envelope.title,
+      body: envelope.body,
+    );
   }
 
   int _notificationIdFor(PushNotificationEnvelope envelope) {

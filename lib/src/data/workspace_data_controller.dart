@@ -113,7 +113,10 @@ class WorkspaceDataController extends ChangeNotifier {
         _formsError = 'Sesi login berakhir. Silakan masuk lagi.';
         _forms = const <FormTemplate>[];
         _usingFallbackForms = false;
-        await _sessionController.invalidateSession(errorMessage: _formsError);
+        await _sessionController.invalidateSession(
+          errorMessage: _formsError,
+          expectedSession: session,
+        );
         return;
       }
       _formsError = error.message;
@@ -191,6 +194,7 @@ class WorkspaceDataController extends ChangeNotifier {
             _usingFallbackTasks = false;
             await _sessionController.invalidateSession(
               errorMessage: _tasksError,
+              expectedSession: session,
             );
             return;
           }
@@ -227,6 +231,7 @@ class WorkspaceDataController extends ChangeNotifier {
             _usingFallbackTasks = false;
             await _sessionController.invalidateSession(
               errorMessage: _tasksError,
+              expectedSession: _sessionController.session ?? session,
             );
             return;
           }
@@ -257,7 +262,10 @@ class WorkspaceDataController extends ChangeNotifier {
         _tasksError = 'Sesi login berakhir. Silakan masuk lagi.';
         _tasks = const <TaskItem>[];
         _usingFallbackTasks = false;
-        await _sessionController.invalidateSession(errorMessage: _tasksError);
+        await _sessionController.invalidateSession(
+          errorMessage: _tasksError,
+          expectedSession: _sessionController.session ?? session,
+        );
         return;
       }
       _tasksError = error.message;

@@ -197,9 +197,11 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (response?.biometricToken != null) {
+        final refreshedBaseUrl =
+            widget.sessionController.session?.apiBaseUrl ?? storedToken.baseUrl;
         await _biometricTokenStore.writeToken(
           token: response!.biometricToken!,
-          baseUrl: storedToken.baseUrl,
+          baseUrl: refreshedBaseUrl,
           deviceId: storedToken.deviceId,
           deviceName: storedToken.deviceName,
           platform: storedToken.platform,

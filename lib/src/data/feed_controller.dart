@@ -132,7 +132,7 @@ class FeedController extends ChangeNotifier {
       }
     } on GesitApiException catch (error) {
       if (!silent || !_loaded || error.statusCode == 401) {
-        await _handleLoadFailure(error);
+        await _handleLoadFailure(error, session);
       }
     } on TimeoutException {
       if (!silent || !_loaded) {
@@ -196,7 +196,10 @@ class FeedController extends ChangeNotifier {
       _error = null;
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _sessionController.invalidateSession(errorMessage: error.message);
+        await _sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
         _posts = const <FeedPost>[];
       } else {
         _error = error.message;
@@ -242,7 +245,10 @@ class FeedController extends ChangeNotifier {
       return post;
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _sessionController.invalidateSession(errorMessage: error.message);
+        await _sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
       }
       rethrow;
     } finally {
@@ -281,7 +287,10 @@ class FeedController extends ChangeNotifier {
       return post;
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _sessionController.invalidateSession(errorMessage: error.message);
+        await _sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
       }
       rethrow;
     } finally {
@@ -308,7 +317,10 @@ class FeedController extends ChangeNotifier {
       return _threadCache[post.id] ?? post;
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _sessionController.invalidateSession(errorMessage: error.message);
+        await _sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
       }
       rethrow;
     } finally {
@@ -345,7 +357,10 @@ class FeedController extends ChangeNotifier {
       return comment;
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _sessionController.invalidateSession(errorMessage: error.message);
+        await _sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
       }
       rethrow;
     } finally {
@@ -386,7 +401,10 @@ class FeedController extends ChangeNotifier {
       return updatedComment;
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _sessionController.invalidateSession(errorMessage: error.message);
+        await _sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
       }
       rethrow;
     } finally {
@@ -417,7 +435,10 @@ class FeedController extends ChangeNotifier {
       notifyListeners();
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _sessionController.invalidateSession(errorMessage: error.message);
+        await _sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
       }
       rethrow;
     } finally {
@@ -447,7 +468,10 @@ class FeedController extends ChangeNotifier {
       await fetchThread(postId, forceRefresh: true);
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _sessionController.invalidateSession(errorMessage: error.message);
+        await _sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
       }
       rethrow;
     } finally {
@@ -489,7 +513,10 @@ class FeedController extends ChangeNotifier {
       return audienceMembers;
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _sessionController.invalidateSession(errorMessage: error.message);
+        await _sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
       }
       rethrow;
     } finally {
@@ -498,11 +525,17 @@ class FeedController extends ChangeNotifier {
     }
   }
 
-  Future<void> _handleLoadFailure(GesitApiException error) async {
+  Future<void> _handleLoadFailure(
+    GesitApiException error,
+    AppSession session,
+  ) async {
     if (error.statusCode == 401) {
       _posts = const <FeedPost>[];
       _error = 'Sesi login berakhir. Silakan masuk lagi.';
-      await _sessionController.invalidateSession(errorMessage: _error);
+      await _sessionController.invalidateSession(
+        errorMessage: _error,
+        expectedSession: session,
+      );
       return;
     }
 

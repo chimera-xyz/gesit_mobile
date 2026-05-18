@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../config/app_runtime_config.dart';
 import '../config/call_runtime_config.dart';
 import '../models/app_models.dart';
+import '../models/session_models.dart';
 import '../theme/app_theme.dart';
 import 'app_session_controller.dart';
 import 'chat_call_media_engine.dart';
@@ -129,6 +130,10 @@ class ChatWorkspaceController extends ChangeNotifier {
     return _loadFuture ??= _bootstrapWorkspace();
   }
 
+  Future<bool> refreshNow() {
+    return _refreshFromServer();
+  }
+
   void setSyncActive(bool active) {
     if (_syncActive == active) {
       return;
@@ -228,7 +233,7 @@ class ChatWorkspaceController extends ChangeNotifier {
         _remoteChatAvailable = false;
       } on GesitApiException catch (error) {
         if (error.statusCode == 401) {
-          await _handleUnauthorized();
+          await _handleUnauthorized(expectedSession: session);
         } else if (error.statusCode == 404 || error.statusCode == 501) {
           _remoteChatAvailable = false;
         }
@@ -298,7 +303,7 @@ class ChatWorkspaceController extends ChangeNotifier {
       _updateMessageDelivery(conversationId, pendingId, MessageDelivery.failed);
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _handleUnauthorized();
+        await _handleUnauthorized(expectedSession: session);
       } else if (error.statusCode == 404 || error.statusCode == 501) {
         _remoteChatAvailable = false;
       }
@@ -411,7 +416,7 @@ class ChatWorkspaceController extends ChangeNotifier {
       _updateMessageDelivery(conversationId, pendingId, MessageDelivery.failed);
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _handleUnauthorized();
+        await _handleUnauthorized(expectedSession: session);
       } else if (error.statusCode == 404 || error.statusCode == 501) {
         _remoteChatAvailable = false;
       }
@@ -488,7 +493,7 @@ class ChatWorkspaceController extends ChangeNotifier {
       // Let sync reconcile temporary signaling delays.
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _handleUnauthorized();
+        await _handleUnauthorized(expectedSession: currentSession);
       } else if (error.statusCode == 404 || error.statusCode == 501) {
         _remoteChatAvailable = false;
       }
@@ -659,7 +664,7 @@ class ChatWorkspaceController extends ChangeNotifier {
           return recoveredCall;
         }
       } else if (error.statusCode == 401) {
-        await _handleUnauthorized();
+        await _handleUnauthorized(expectedSession: session);
       } else if (error.statusCode == 404 || error.statusCode == 501) {
         _remoteChatAvailable = false;
       } else {
@@ -753,7 +758,7 @@ class ChatWorkspaceController extends ChangeNotifier {
           return recoveredCall;
         }
       } else if (error.statusCode == 401) {
-        await _handleUnauthorized();
+        await _handleUnauthorized(expectedSession: session);
       } else if (error.statusCode == 404 || error.statusCode == 501) {
         _remoteChatAvailable = false;
       } else {
@@ -1074,7 +1079,7 @@ class ChatWorkspaceController extends ChangeNotifier {
       _remoteChatAvailable = false;
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _handleUnauthorized();
+        await _handleUnauthorized(expectedSession: session);
       } else if (error.statusCode == 404 || error.statusCode == 501) {
         _remoteChatAvailable = false;
       }
@@ -1142,12 +1147,12 @@ class ChatWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> _runRealtimeStreamSync() async {
-    try {
-      final session = sessionController.session;
-      if (session == null) {
-        return;
-      }
+    final session = sessionController.session;
+    if (session == null) {
+      return;
+    }
 
+    try {
       await for (final payload in _apiClient.streamChatWorkspace(
         baseUrl: session.apiBaseUrl,
         cookies: session.cookies,
@@ -1166,7 +1171,7 @@ class ChatWorkspaceController extends ChangeNotifier {
       _syncFailureCount += 1;
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _handleUnauthorized();
+        await _handleUnauthorized(expectedSession: session);
         return;
       }
       if (error.statusCode == 404 || error.statusCode == 501) {
@@ -1181,12 +1186,12 @@ class ChatWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> _runPollingSyncOnce() async {
-    try {
-      final session = sessionController.session;
-      if (session == null) {
-        return;
-      }
+    final session = sessionController.session;
+    if (session == null) {
+      return;
+    }
 
+    try {
       final payload = await _apiClient.syncChatWorkspace(
         baseUrl: session.apiBaseUrl,
         cookies: session.cookies,
@@ -1201,7 +1206,7 @@ class ChatWorkspaceController extends ChangeNotifier {
     } on GesitApiException catch (error) {
       _syncFailureCount += 1;
       if (error.statusCode == 401) {
-        await _handleUnauthorized();
+        await _handleUnauthorized(expectedSession: session);
         return;
       }
       if (error.statusCode == 404 || error.statusCode == 501) {
@@ -1676,7 +1681,7 @@ class ChatWorkspaceController extends ChangeNotifier {
       }
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _handleUnauthorized();
+        await _handleUnauthorized(expectedSession: session);
       } else if (error.statusCode == 404 || error.statusCode == 501) {
         _remoteChatAvailable = false;
       }
@@ -1709,7 +1714,7 @@ class ChatWorkspaceController extends ChangeNotifier {
       }
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await _handleUnauthorized();
+        await _handleUnauthorized(expectedSession: session);
       } else if (error.statusCode == 404 || error.statusCode == 501) {
         _remoteChatAvailable = false;
       }
@@ -2248,7 +2253,9 @@ class ChatWorkspaceController extends ChangeNotifier {
     unawaited(_syncCallMediaEngine());
   }
 
-  Future<void> _handleUnauthorized() async {
+  Future<void> _handleUnauthorized({
+    required AppSession expectedSession,
+  }) async {
     final userId = _sessionUserId;
     _remoteChatAvailable = false;
     _clearWorkspace();
@@ -2257,6 +2264,7 @@ class ChatWorkspaceController extends ChangeNotifier {
     }
     await sessionController.invalidateSession(
       errorMessage: 'Sesi login berakhir. Silakan masuk lagi.',
+      expectedSession: expectedSession,
     );
   }
 

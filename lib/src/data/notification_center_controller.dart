@@ -161,7 +161,10 @@ class NotificationCenterController extends ChangeNotifier
       }
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await sessionController.invalidateSession(errorMessage: error.message);
+        await sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
       }
     } catch (_) {
       // Optimistic local state is already updated.
@@ -227,7 +230,10 @@ class NotificationCenterController extends ChangeNotifier
       unawaited(syncLatest(surfaceNew: false));
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await sessionController.invalidateSession(errorMessage: error.message);
+        await sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
       }
     } catch (_) {
       // Optimistic local state is already updated.
@@ -259,6 +265,7 @@ class NotificationCenterController extends ChangeNotifier
         if (error.statusCode == 401) {
           await sessionController.invalidateSession(
             errorMessage: error.message,
+            expectedSession: session,
           );
         }
       } catch (_) {
@@ -306,7 +313,10 @@ class NotificationCenterController extends ChangeNotifier
       await sessionController.syncCookies(payload.cookies);
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await sessionController.invalidateSession(errorMessage: error.message);
+        await sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
       }
     } catch (_) {
       // Keep optimistic local clear. If the backend is older, data will
@@ -345,7 +355,10 @@ class NotificationCenterController extends ChangeNotifier
       notifyListeners();
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await sessionController.invalidateSession(errorMessage: error.message);
+        await sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
       }
     } catch (_) {
       // Foreground sync is best effort. Realtime stream and FCM are the primary
@@ -450,8 +463,15 @@ class NotificationCenterController extends ChangeNotifier
       fallbackTitle: envelope.title,
       fallbackMessage: envelope.body,
     );
+    if (notification.type == AppNotificationType.call) {
+      unawaited(syncLatest(surfaceNew: false));
+      return;
+    }
     _upsertNotification(
-      notification.copyWith(storesInCenter: notification.link != null),
+      notification.copyWith(
+        storesInCenter:
+            notification.storesInCenter && notification.link != null,
+      ),
       surface: true,
     );
     notifyListeners();
@@ -494,7 +514,10 @@ class NotificationCenterController extends ChangeNotifier
       fallbackMessage: envelope.body,
     );
     _upsertNotification(
-      notification.copyWith(storesInCenter: notification.link != null),
+      notification.copyWith(
+        storesInCenter:
+            notification.storesInCenter && notification.link != null,
+      ),
       surface: false,
     );
     _openRequestController.add(notification);
@@ -538,12 +561,12 @@ class NotificationCenterController extends ChangeNotifier
     while (!_disposed &&
         !_streamUnavailable &&
         sessionController.session != null) {
-      try {
-        final session = sessionController.session;
-        if (session == null) {
-          break;
-        }
+      final session = sessionController.session;
+      if (session == null) {
+        break;
+      }
 
+      try {
         await for (final payload in _apiClient.streamNotifications(
           baseUrl: session.apiBaseUrl,
           cookies: session.cookies,
@@ -561,6 +584,7 @@ class NotificationCenterController extends ChangeNotifier
         if (error.statusCode == 401) {
           await sessionController.invalidateSession(
             errorMessage: error.message,
+            expectedSession: session,
           );
           break;
         }
@@ -779,7 +803,10 @@ class NotificationCenterController extends ChangeNotifier
       _registeredPushToken = token;
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
-        await sessionController.invalidateSession(errorMessage: error.message);
+        await sessionController.invalidateSession(
+          errorMessage: error.message,
+          expectedSession: session,
+        );
         return;
       }
       if (error.statusCode == 404 || error.statusCode == 501) {

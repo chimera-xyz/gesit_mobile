@@ -78,6 +78,47 @@ void main() {
     });
 
     test(
+      'tailscale dev server uses polling instead of notification stream',
+      () async {
+        var streamRequests = 0;
+        await sessionController.syncSession(
+          _buildSession(apiBaseUrl: 'http://100.64.7.96:8000'),
+          notify: false,
+        );
+
+        final controller = NotificationCenterController(
+          sessionController: sessionController,
+          apiClient: GesitApiClient(
+            httpClient: MockClient((request) async {
+              if (request.method == 'GET' &&
+                  request.url.path == '/api/notifications') {
+                return _jsonResponse({
+                  'notifications': const <Map<String, dynamic>>[],
+                  'unread_count': 0,
+                });
+              }
+
+              if (request.method == 'GET' &&
+                  request.url.path == '/api/notifications/stream') {
+                streamRequests += 1;
+                return _jsonResponse({'message': 'Not found'}, statusCode: 404);
+              }
+
+              return _jsonResponse({'message': 'Not found'}, statusCode: 404);
+            }),
+          ),
+          foregroundAlertPlayer: () async {},
+        );
+        addTearDown(controller.dispose);
+
+        await controller.ensureLoaded();
+        await pumpEventQueue(times: 4);
+
+        expect(streamRequests, 0);
+      },
+    );
+
+    test(
       'realtime stream inserts new notifications and surfaces banner',
       () async {
         var streamServed = false;

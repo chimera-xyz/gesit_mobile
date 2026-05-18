@@ -102,7 +102,13 @@ class PushNotificationService {
       FirebaseMessaging.onMessage.listen((message) {
         final envelope = _toEnvelope(message);
         _messageController.add(envelope);
-        unawaited(LocalNotificationService.instance.playForegroundAlert());
+        if (envelope.isCall) {
+          // Foreground calls are owned by the in-app call presenter. Showing a
+          // normal system notification here makes chat calls feel like generic
+          // alerts and can duplicate the incoming-call overlay.
+        } else {
+          unawaited(LocalNotificationService.instance.playForegroundAlert());
+        }
       });
 
       FirebaseMessaging.onMessageOpenedApp.listen((message) {
@@ -247,6 +253,16 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
     await Firebase.initializeApp();
+    final envelope = PushNotificationEnvelope(
+      data: Map<String, String>.from(message.data),
+      title: message.notification?.title,
+      body: message.notification?.body,
+    );
+    if (defaultTargetPlatform == TargetPlatform.android && envelope.isCall) {
+      // Android call pushes are rendered by the native CallStyle receiver so
+      // they can appear as ringing/full-screen calls while Flutter is stopped.
+      return;
+    }
     if (defaultTargetPlatform == TargetPlatform.android &&
         message.notification != null) {
       return;

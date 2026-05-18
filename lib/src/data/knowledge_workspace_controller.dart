@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../config/app_runtime_config.dart';
+import '../models/session_models.dart';
 import 'app_session_controller.dart';
 import 'gesit_api_client.dart';
 
@@ -115,7 +116,7 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
       _loaded = true;
       _errorMessage = null;
     } on GesitApiException catch (error) {
-      await _handleApiException(error);
+      await _handleApiException(error, session);
     } on TimeoutException {
       _errorMessage = 'Knowledge Hub terlalu lama merespons.';
     } catch (_) {
@@ -163,7 +164,7 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
       _activeConversationId = conversation.id;
       _errorMessage = null;
     } on GesitApiException catch (error) {
-      await _handleApiException(error);
+      await _handleApiException(error, session);
     } on TimeoutException {
       _errorMessage = 'Riwayat obrolan terlalu lama dimuat.';
     } catch (_) {
@@ -310,7 +311,7 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
       _errorMessage = null;
       _lastFailedQuestion = null;
     } on GesitApiException catch (error) {
-      await _handleApiException(error);
+      await _handleApiException(error, session);
       if (error.statusCode != 401) {
         _lastFailedQuestion = normalizedQuestion;
         _messages = List<KnowledgeAssistantMessage>.unmodifiable([
@@ -403,7 +404,7 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
       _messages = List<KnowledgeAssistantMessage>.unmodifiable(nextMessages);
       _errorMessage = null;
     } on GesitApiException catch (error) {
-      await _handleApiException(error);
+      await _handleApiException(error, session);
     } on TimeoutException {
       _errorMessage =
           'Aksi belum mendapat jawaban dari server. Coba lagi sebentar.';
@@ -452,7 +453,7 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
       );
     } on GesitApiException catch (error) {
       _replaceDocumentAt(index, originalDocument);
-      await _handleApiException(error);
+      await _handleApiException(error, session);
     } on TimeoutException {
       _replaceDocumentAt(index, originalDocument);
       _errorMessage = 'Bookmark terlalu lama diperbarui.';
@@ -490,7 +491,7 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
       await refresh();
       return folder;
     } on GesitApiException catch (error) {
-      await _handleApiException(error);
+      await _handleApiException(error, session);
       notifyListeners();
       rethrow;
     }
@@ -533,7 +534,7 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
       await refresh();
       return document;
     } on GesitApiException catch (error) {
-      await _handleApiException(error);
+      await _handleApiException(error, session);
       notifyListeners();
       rethrow;
     }
@@ -574,7 +575,7 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
       await refresh();
       return document;
     } on GesitApiException catch (error) {
-      await _handleApiException(error);
+      await _handleApiException(error, session);
       notifyListeners();
       rethrow;
     }
@@ -598,7 +599,7 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
           .toList(growable: false);
       await refresh();
     } on GesitApiException catch (error) {
-      await _handleApiException(error);
+      await _handleApiException(error, session);
       notifyListeners();
       rethrow;
     }
@@ -619,7 +620,7 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
       await _sessionController.syncCookies(payload.cookies);
       return KnowledgeHubShare.fromJson(_asMap(payload.data['share']));
     } on GesitApiException catch (error) {
-      await _handleApiException(error);
+      await _handleApiException(error, session);
       notifyListeners();
       rethrow;
     }
@@ -645,7 +646,7 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
       _upsertDocument(document);
       return document;
     } on GesitApiException catch (error) {
-      await _handleApiException(error);
+      await _handleApiException(error, session);
       notifyListeners();
       rethrow;
     }
@@ -773,7 +774,10 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _handleApiException(GesitApiException error) async {
+  Future<void> _handleApiException(
+    GesitApiException error,
+    AppSession session,
+  ) async {
     if (error.statusCode == 401) {
       _spaces = const <KnowledgeHubSpace>[];
       _documents = const <KnowledgeHubDocument>[];
@@ -781,7 +785,10 @@ class KnowledgeWorkspaceController extends ChangeNotifier {
       _messages = const <KnowledgeAssistantMessage>[];
       _activeConversationId = null;
       _errorMessage = 'Sesi login berakhir. Silakan masuk lagi.';
-      await _sessionController.invalidateSession(errorMessage: _errorMessage);
+      await _sessionController.invalidateSession(
+        errorMessage: _errorMessage,
+        expectedSession: session,
+      );
       return;
     }
 

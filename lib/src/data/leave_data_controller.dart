@@ -61,7 +61,10 @@ class LeaveDataController extends ChangeNotifier {
     } on GesitApiException catch (error) {
       if (error.statusCode == 401) {
         _error = 'Sesi login berakhir. Silakan masuk lagi.';
-        await _sessionController.invalidateSession(errorMessage: _error);
+        await _sessionController.invalidateSession(
+          errorMessage: _error,
+          expectedSession: session,
+        );
         return;
       }
       _error = error.message;

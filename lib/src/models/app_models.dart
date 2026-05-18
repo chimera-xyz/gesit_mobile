@@ -292,6 +292,7 @@ enum AppNotificationType {
   system,
   knowledge,
   chat,
+  meeting,
   call,
 }
 
@@ -302,6 +303,7 @@ enum NotificationDestination {
   forms,
   helpdesk,
   chat,
+  meeting,
   knowledgeHub,
   leave,
   profile,
@@ -1037,6 +1039,7 @@ class ChatCallSession {
     this.micEnabled = true,
     this.cameraEnabled = false,
     this.metadata = const <String, dynamic>{},
+    this.liveKit,
   });
 
   final String id;
@@ -1055,6 +1058,7 @@ class ChatCallSession {
   final bool micEnabled;
   final bool cameraEnabled;
   final Map<String, dynamic> metadata;
+  final ChatCallLiveKitCredentials? liveKit;
 
   Duration get elapsed {
     if (startedAt == null) {
@@ -1082,6 +1086,7 @@ class ChatCallSession {
     bool? micEnabled,
     bool? cameraEnabled,
     Map<String, dynamic>? metadata,
+    ChatCallLiveKitCredentials? liveKit,
   }) {
     return ChatCallSession(
       id: id ?? this.id,
@@ -1100,6 +1105,7 @@ class ChatCallSession {
       micEnabled: micEnabled ?? this.micEnabled,
       cameraEnabled: cameraEnabled ?? this.cameraEnabled,
       metadata: metadata ?? this.metadata,
+      liveKit: liveKit ?? this.liveKit,
     );
   }
 
@@ -1132,6 +1138,15 @@ class ChatCallSession {
           : json['metadata'] is Map
           ? (json['metadata'] as Map).cast<String, dynamic>()
           : const <String, dynamic>{},
+      liveKit: json['livekit'] is Map<String, dynamic>
+          ? ChatCallLiveKitCredentials.fromJson(
+              json['livekit'] as Map<String, dynamic>,
+            )
+          : json['livekit'] is Map
+          ? ChatCallLiveKitCredentials.fromJson(
+              (json['livekit'] as Map).cast<String, dynamic>(),
+            )
+          : null,
     );
   }
 
@@ -1153,6 +1168,49 @@ class ChatCallSession {
       'mic_enabled': micEnabled,
       'camera_enabled': cameraEnabled,
       'metadata': metadata,
+      'livekit': liveKit?.toJson(),
+    };
+  }
+}
+
+class ChatCallLiveKitCredentials {
+  const ChatCallLiveKitCredentials({
+    required this.url,
+    required this.token,
+    required this.roomName,
+    required this.identity,
+    required this.role,
+  });
+
+  final String url;
+  final String token;
+  final String roomName;
+  final String identity;
+  final String role;
+
+  bool get isComplete =>
+      url.trim().isNotEmpty &&
+      token.trim().isNotEmpty &&
+      roomName.trim().isNotEmpty &&
+      identity.trim().isNotEmpty;
+
+  factory ChatCallLiveKitCredentials.fromJson(Map<String, dynamic> json) {
+    return ChatCallLiveKitCredentials(
+      url: '${json['url'] ?? ''}',
+      token: '${json['token'] ?? ''}',
+      roomName: '${json['room_name'] ?? ''}',
+      identity: '${json['identity'] ?? ''}',
+      role: '${json['role'] ?? ''}',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'url': url,
+      'token': token,
+      'room_name': roomName,
+      'identity': identity,
+      'role': role,
     };
   }
 }

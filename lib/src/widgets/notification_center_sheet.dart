@@ -766,6 +766,8 @@ Color notificationAccentColor(AppNotificationType type) {
       return AppColors.emerald;
     case AppNotificationType.chat:
       return AppColors.blue;
+    case AppNotificationType.meeting:
+      return AppColors.emerald;
     case AppNotificationType.call:
       return AppColors.goldDeep;
   }
@@ -785,6 +787,8 @@ IconData notificationIcon(AppNotificationType type) {
       return Icons.auto_stories_rounded;
     case AppNotificationType.chat:
       return Icons.forum_rounded;
+    case AppNotificationType.meeting:
+      return Icons.event_available_rounded;
     case AppNotificationType.call:
       return Icons.call_rounded;
   }
@@ -804,6 +808,8 @@ String notificationTypeLabel(AppNotificationType type) {
       return 'Knowledge';
     case AppNotificationType.chat:
       return 'Chat';
+    case AppNotificationType.meeting:
+      return 'Meeting';
     case AppNotificationType.call:
       return 'Panggilan';
   }

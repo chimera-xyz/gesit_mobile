@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../data/app_session_controller.dart';
 import '../data/app_link_controller.dart';
@@ -8,15 +10,21 @@ import '../data/chat_call_media_engine.dart';
 import '../data/chat_workspace_controller.dart';
 import '../data/feed_controller.dart';
 import '../data/gesit_api_client.dart';
+import '../data/home_banner_controller.dart';
 import '../data/leave_data_controller.dart';
+import '../data/meeting_workspace_controller.dart';
 import '../data/notification_center_controller.dart';
+import '../data/push_notification_models.dart';
+import '../data/push_notification_service.dart';
 import '../data/workspace_data_controller.dart';
 import '../models/app_models.dart';
 import '../models/feed_models.dart';
+import '../models/home_banner_models.dart';
+import '../models/meeting_models.dart';
 import '../models/session_models.dart';
-import '../screens/chat/chat_call_screen.dart';
 import '../screens/chat/chat_conversation_screen.dart';
 import '../screens/chat/chat_hub_screen.dart';
+import '../screens/chat/livekit_chat_call_screen.dart' as chat_call_ui;
 import '../screens/feed_screen.dart';
 import '../screens/feed_thread_screen.dart';
 import '../screens/chat/group_detail_screen.dart';
@@ -25,6 +33,10 @@ import '../screens/helpdesk_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/knowledge_workspace_screen.dart';
 import '../screens/leave_dashboard_screen.dart';
+import '../screens/meeting/meeting_hub_screen.dart';
+import '../screens/meeting/livekit_chat_call_screen.dart' as meeting_call_ui;
+import '../screens/meeting/meeting_room_screen.dart';
+import '../screens/meeting/meeting_waiting_room_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/profile_detail_screen.dart';
 import '../screens/submission_detail_screen.dart';
@@ -61,10 +73,13 @@ class _GesitShellState extends State<GesitShell>
   late final WorkspaceDataController _workspaceController;
   late final LeaveDataController _leaveController;
   late final ChatWorkspaceController _chatController;
+  late final MeetingWorkspaceController _meetingController;
   late final FeedController _feedController;
+  late final HomeBannerController _homeBannerController;
   late final Listenable _homeTabListenable;
   late final Listenable _navigationListenable;
   StreamSubscription<AppNotification>? _notificationOpenRequestSubscription;
+  StreamSubscription<PushNotificationEnvelope>? _foregroundPushSubscription;
 
   @override
   void initState() {
@@ -80,15 +95,27 @@ class _GesitShellState extends State<GesitShell>
     _chatController = ChatWorkspaceController(
       sessionController: widget.sessionController,
       notificationController: _notificationController,
-      callMediaEngine: WebRtcChatCallMediaEngine(),
+      callMediaEngine: NoopChatCallMediaEngine(),
     );
+    _foregroundPushSubscription = PushNotificationService.instance.messages
+        .listen((envelope) {
+          if (envelope.isCall) {
+            unawaited(_handleForegroundCallPush());
+          }
+        });
     _workspaceController = WorkspaceDataController(
       sessionController: widget.sessionController,
     );
     _leaveController = LeaveDataController(
       sessionController: widget.sessionController,
     );
+    _meetingController = MeetingWorkspaceController(
+      sessionController: widget.sessionController,
+    );
     _feedController = FeedController(
+      sessionController: widget.sessionController,
+    );
+    _homeBannerController = HomeBannerController(
       sessionController: widget.sessionController,
     );
     _homeTabListenable = Listenable.merge([
@@ -96,9 +123,11 @@ class _GesitShellState extends State<GesitShell>
       _workspaceController,
       _leaveController,
       _feedController,
+      _homeBannerController,
     ]);
     _navigationListenable = Listenable.merge([
       _chatController,
+      _meetingController,
       _notificationController,
       _workspaceController,
     ]);
@@ -120,41 +149,71 @@ class _GesitShellState extends State<GesitShell>
 
   Future<void> _primeStartupControllers() async {
     await _notificationController.ensureLoaded();
-    if (!mounted) {
+    var session = _currentSession;
+    if (!mounted || session == null) {
       return;
     }
 
     await _workspaceController.ensureLoaded();
-    if (!mounted) {
+    session = _currentSession;
+    if (!mounted || session == null) {
       return;
     }
 
-    if (_session.canAccessLeave) {
+    if (session.canAccessLeave) {
       await _leaveController.ensureLoaded();
-      if (!mounted) {
+      session = _currentSession;
+      if (!mounted || session == null) {
         return;
       }
     }
 
+    if (session.canAccessMeeting) {
+      unawaited(_meetingController.ensureLoaded());
+    }
+
+    if (session.canAccessChat) {
+      unawaited(_ensureChatLoaded());
+    }
+
     await _feedController.ensureLoaded();
+    if (!mounted || _currentSession == null) {
+      return;
+    }
+
+    await _homeBannerController.ensureLoaded();
   }
 
   Future<void> _ensureChatLoaded() async {
-    if (!_session.canAccessChat) {
+    final session = _currentSession;
+    if (session == null || !session.canAccessChat) {
       return;
     }
 
     await _chatController.ensureLoaded();
   }
 
+  Future<void> _handleForegroundCallPush() async {
+    final session = _currentSession;
+    if (session == null || !session.canAccessChat) {
+      return;
+    }
+
+    await _ensureChatLoaded();
+    await _chatController.refreshNow();
+  }
+
   @override
   void dispose() {
     widget.appLinkController.removeListener(_handleAppLinkChanged);
     _notificationOpenRequestSubscription?.cancel();
+    _foregroundPushSubscription?.cancel();
     _chatController.dispose();
+    _meetingController.dispose();
     _workspaceController.dispose();
     _leaveController.dispose();
     _feedController.dispose();
+    _homeBannerController.dispose();
     _notificationController.dispose();
     _tabTransitionController.dispose();
     super.dispose();
@@ -191,6 +250,9 @@ class _GesitShellState extends State<GesitShell>
     if (module == AppShellModule.chat) {
       unawaited(_ensureChatLoaded());
     }
+    if (module == AppShellModule.meeting) {
+      unawaited(_meetingController.ensureLoaded());
+    }
 
     setState(() {
       _previousModule = _currentModule;
@@ -205,7 +267,10 @@ class _GesitShellState extends State<GesitShell>
 
   void _syncModuleControllers(AppShellModule module) {
     _feedController.setAutoRefreshActive(module == AppShellModule.home);
-    _chatController.setSyncActive(module == AppShellModule.chat);
+    // Incoming calls are shell-level events, not chat-tab-only events. Keep the
+    // chat realtime/polling listener alive while the authenticated user has
+    // chat access so calls surface on Home, Tasks, Meeting, Profile, etc.
+    _chatController.setSyncActive(_currentSession?.canAccessChat == true);
   }
 
   void _openSubmission(TaskItem task) {
@@ -227,14 +292,102 @@ class _GesitShellState extends State<GesitShell>
   }
 
   void _openFeedTimeline() {
+    final session = _currentSession;
+    if (session == null) {
+      return;
+    }
+
     pushBrandedRoute(
       context,
       FeedScreen(
         controller: _feedController,
-        userDivisionLabel: _session.user.divisionLabel,
+        userDivisionLabel: session.user.divisionLabel,
         onOpenThread: _openFeedThread,
       ),
     );
+  }
+
+  Future<void> _openHomeBanner(HomeBannerItem banner) async {
+    final session = _currentSession;
+    if (session == null) {
+      return;
+    }
+
+    final actionType = banner.actionType.trim();
+
+    switch (actionType) {
+      case 'forms':
+        if (session.canAccessForms) {
+          _selectModule(AppShellModule.forms);
+        }
+        return;
+      case 'tasks':
+        if (session.canAccessTasks) {
+          _selectModule(AppShellModule.tasks);
+        }
+        return;
+      case 'leave':
+        if (session.canAccessLeave) {
+          _openLeaveDashboard();
+        }
+        return;
+      case 'chat':
+        if (session.canAccessChat) {
+          _selectModule(AppShellModule.chat);
+        }
+        return;
+      case 'helpdesk':
+        if (session.canAccessHelpdesk) {
+          _openHelpdesk();
+        }
+        return;
+      case 'ai_assist':
+        if (session.canAccessKnowledgeHub) {
+          _openAiAssist();
+        }
+        return;
+      case 'feed':
+        final postId = banner.actionValue?.trim();
+        if (postId != null && postId.isNotEmpty) {
+          await _openFeedThreadById(postId);
+        } else {
+          _openFeedTimeline();
+        }
+        return;
+      case 'url':
+        await _openBannerUrl(banner.actionValue);
+        return;
+      case 'none':
+      default:
+        return;
+    }
+  }
+
+  Future<void> _openBannerUrl(String? rawUrl) async {
+    final url = rawUrl?.trim();
+    final uri = url == null || url.isEmpty ? null : Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme) {
+      return;
+    }
+
+    final bool opened;
+    try {
+      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Link banner belum bisa dibuka.')),
+      );
+      return;
+    }
+
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Link banner belum bisa dibuka.')),
+      );
+    }
   }
 
   Future<void> _openFeedThreadById(String postId) async {
@@ -291,12 +444,37 @@ class _GesitShellState extends State<GesitShell>
     final uri = Uri.tryParse(rawLink);
     final path = uri?.path.isNotEmpty == true ? uri!.path : rawLink;
     final shareToken = _shareTokenFromPath(path);
-    if (shareToken == null) {
+    widget.appLinkController.consume(rawLink);
+    if (shareToken != null) {
+      _openSharedKnowledgeDocument(shareToken);
       return;
     }
 
-    widget.appLinkController.consume(rawLink);
-    _openSharedKnowledgeDocument(shareToken);
+    unawaited(
+      _openNotificationLink(
+        AppNotification(
+          id: 'deep-link-${DateTime.now().microsecondsSinceEpoch}',
+          title: 'GESIT',
+          message: '',
+          detail: '',
+          type:
+              path.contains('/chat/conversations') &&
+                  (uri?.queryParameters.containsKey('call') ?? false)
+              ? AppNotificationType.call
+              : path.contains('/meetings')
+              ? AppNotificationType.meeting
+              : AppNotificationType.system,
+          createdAt: DateTime.now(),
+          storesInCenter: false,
+          destination: path.contains('/chat/conversations')
+              ? NotificationDestination.chat
+              : path.contains('/meetings')
+              ? NotificationDestination.meeting
+              : NotificationDestination.none,
+          link: rawLink,
+        ),
+      ),
+    );
   }
 
   void _openAiAssist() {
@@ -367,6 +545,14 @@ class _GesitShellState extends State<GesitShell>
           badgeCount: _chatController.unreadConversationCount,
           onTap: () => _selectModule(AppShellModule.chat),
         ),
+      if (session.canAccessMeeting)
+        _LauncherItem(
+          label: AppShellModule.meeting.label,
+          icon: AppShellModule.meeting.icon,
+          accentColor: AppColors.emerald,
+          selected: currentModule == AppShellModule.meeting,
+          onTap: () => _selectModule(AppShellModule.meeting),
+        ),
       if (session.canAccessHelpdesk)
         _LauncherItem(
           label: 'Helpdesk',
@@ -426,9 +612,49 @@ class _GesitShellState extends State<GesitShell>
     );
   }
 
+  void _openMeetingRoom(MeetingSummary meeting) {
+    unawaited(() async {
+      final attempt = await _meetingController.joinMeeting(meeting.id);
+      if (!mounted) {
+        return;
+      }
+
+      if (attempt == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _meetingController.errorMessage ??
+                  'Meeting belum bisa dibuka. Periksa konfigurasi LiveKit.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      _openMeetingAttempt(attempt);
+    }());
+  }
+
+  Future<void> _openMeetingById(String meetingId) async {
+    final meeting = await _meetingController.fetchMeetingById(meetingId);
+    if (!mounted) {
+      return;
+    }
+
+    if (meeting == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Meeting tidak ditemukan.')));
+      return;
+    }
+
+    _openMeetingRoom(meeting);
+  }
+
   Future<void> _openConversationById(
     String conversationId, {
     String? callId,
+    String? notificationAction,
   }) async {
     await _ensureChatLoaded();
     if (!mounted) {
@@ -448,9 +674,19 @@ class _GesitShellState extends State<GesitShell>
         activeCall != null &&
         activeCall.id == callId &&
         activeCall.conversationId == conversationId) {
+      if (notificationAction == 'decline') {
+        await _chatController.declineActiveCall();
+        return;
+      }
+      if (notificationAction == 'answer' && activeCall.isIncoming) {
+        await _chatController.acceptActiveCall();
+        if (!mounted) {
+          return;
+        }
+      }
       pushBrandedRoute(
         context,
-        ChatCallScreen(
+        chat_call_ui.LiveKitChatCallScreen(
           controller: _chatController,
           conversationId: conversationId,
         ),
@@ -469,55 +705,86 @@ class _GesitShellState extends State<GesitShell>
       conversationId,
       type: type,
     );
-    if (preparedCall == null) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Masih ada panggilan aktif yang belum selesai.'),
-        ),
-      );
-      return;
-    }
 
     if (!mounted) {
       return;
     }
 
+    if (preparedCall == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Masih ada panggilan aktif.')),
+      );
+      return;
+    }
+
     pushBrandedRoute(
       context,
-      ChatCallScreen(
+      chat_call_ui.LiveKitChatCallScreen(
         controller: _chatController,
-        conversationId: preparedCall.conversationId,
+        conversationId: conversationId,
       ),
     );
 
-    try {
-      await _chatController.connectPreparedOutgoingCall(
-        preparedCall.id,
-        conversationId: conversationId,
-        type: type,
-      );
-    } on GesitApiException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
+    unawaited(
+      _chatController
+          .connectPreparedOutgoingCall(
+            preparedCall.id,
+            conversationId: conversationId,
+            type: type,
+          )
+          .catchError((error) {
+            if (!mounted) {
+              return null;
+            }
+            final message = error is GesitApiException
+                ? error.message
+                : 'Panggilan belum bisa dimulai.';
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(message)));
+            return null;
+          }),
+    );
+  }
+
+  void _openMeetingAttempt(MeetingJoinAttempt attempt) {
+    if (attempt.waitingRoom) {
+      pushBrandedRoute(
         context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
-      return;
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Panggilan belum bisa dimulai. Coba lagi.'),
+        MeetingWaitingRoomScreen(
+          controller: _meetingController,
+          initialMeeting: attempt.meeting,
+          onAdmitted: (nextAttempt) {
+            Navigator.of(context).pop();
+            _openMeetingAttempt(nextAttempt);
+          },
         ),
       );
       return;
     }
+
+    final credentials = attempt.credentials;
+    if (credentials == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Credential LiveKit tidak lengkap.')),
+      );
+      return;
+    }
+
+    pushBrandedRoute(
+      context,
+      attempt.meeting.isCall
+          ? meeting_call_ui.LiveKitChatCallScreen(
+              controller: _meetingController,
+              meeting: attempt.meeting,
+              credentials: credentials,
+            )
+          : MeetingRoomScreen(
+              controller: _meetingController,
+              meeting: attempt.meeting,
+              credentials: credentials,
+            ),
+    );
   }
 
   Future<void> _openChatComposer() async {
@@ -539,7 +806,7 @@ class _GesitShellState extends State<GesitShell>
     _openConversation(selectedConversation);
   }
 
-  AppSession get _session => widget.sessionController.session!;
+  AppSession? get _currentSession => widget.sessionController.session;
 
   Future<void> _openNotifications() async {
     final selectedNotification = await showModalBottomSheet<AppNotification>(
@@ -592,7 +859,8 @@ class _GesitShellState extends State<GesitShell>
   Future<void> _handleNotificationOpenRequest(
     AppNotification notification,
   ) async {
-    if ((_session.user.id).isEmpty) {
+    final session = _currentSession;
+    if (session == null || session.user.id.isEmpty) {
       return;
     }
 
@@ -607,6 +875,11 @@ class _GesitShellState extends State<GesitShell>
   Future<void> _openNotificationDestination(
     AppNotification notification,
   ) async {
+    final session = _currentSession;
+    if (session == null) {
+      return;
+    }
+
     if (await _openNotificationLink(notification)) {
       return;
     }
@@ -624,33 +897,38 @@ class _GesitShellState extends State<GesitShell>
         }
         return;
       case NotificationDestination.tasks:
-        if (_session.canAccessTasks) {
+        if (session.canAccessTasks) {
           _selectModule(AppShellModule.tasks);
         }
         return;
       case NotificationDestination.forms:
-        if (_session.canAccessForms) {
+        if (session.canAccessForms) {
           _selectModule(AppShellModule.forms);
         }
         return;
       case NotificationDestination.helpdesk:
-        if (_session.canAccessHelpdesk) {
+        if (session.canAccessHelpdesk) {
           _openHelpdesk();
         }
         return;
       case NotificationDestination.chat:
-        if (_session.canAccessChat) {
+        if (session.canAccessChat) {
           _selectModule(AppShellModule.chat);
         }
         return;
+      case NotificationDestination.meeting:
+        if (session.canAccessMeeting) {
+          _selectModule(AppShellModule.meeting);
+        }
+        return;
       case NotificationDestination.knowledgeHub:
-        if (_session.canAccessKnowledgeHub) {
+        if (session.canAccessKnowledgeHub) {
           _openKnowledgeHub();
         }
         return;
       case NotificationDestination.leave:
         if (notification.type == AppNotificationType.approval &&
-            _session.canAccessTasks) {
+            session.canAccessTasks) {
           unawaited(_workspaceController.refreshTasks());
           _selectModule(AppShellModule.tasks);
         } else {
@@ -664,6 +942,11 @@ class _GesitShellState extends State<GesitShell>
   }
 
   Future<bool> _openNotificationLink(AppNotification notification) async {
+    final session = _currentSession;
+    if (session == null) {
+      return false;
+    }
+
     final rawLink = notification.link;
     final normalizedLink = rawLink?.trim();
     if (normalizedLink == null || normalizedLink.isEmpty) {
@@ -703,11 +986,12 @@ class _GesitShellState extends State<GesitShell>
     }
 
     final conversationId = _conversationIdFromPath(path);
-    if (conversationId != null && _session.canAccessChat) {
+    if (conversationId != null && session.canAccessChat) {
       try {
         await _openConversationById(
           conversationId,
           callId: uri?.queryParameters['call'],
+          notificationAction: uri?.queryParameters['notification_action'],
         );
       } on GesitApiException catch (error) {
         if (!mounted) {
@@ -729,8 +1013,18 @@ class _GesitShellState extends State<GesitShell>
       return true;
     }
 
+    final meetingId = _meetingIdFromPath(path);
+    if (meetingId != null && session.canAccessMeeting) {
+      if (uri?.queryParameters['notification_action'] == 'decline') {
+        await _meetingController.endMeeting(meetingId);
+        return true;
+      }
+      await _openMeetingById(meetingId);
+      return true;
+    }
+
     final submissionId = _submissionIdFromPath(path);
-    if (submissionId != null && _session.canAccessTasks) {
+    if (submissionId != null && session.canAccessTasks) {
       try {
         _selectModule(AppShellModule.tasks);
         final task = await _workspaceController.findOrFetchTaskById(
@@ -761,14 +1055,14 @@ class _GesitShellState extends State<GesitShell>
     }
 
     if (path.contains('/helpdesk')) {
-      if (_session.canAccessHelpdesk) {
+      if (session.canAccessHelpdesk) {
         _openHelpdesk();
       }
       return true;
     }
 
     if (path.contains('/knowledge-hub')) {
-      if (_session.canAccessKnowledgeHub) {
+      if (session.canAccessKnowledgeHub) {
         _openKnowledgeHub();
       }
       return true;
@@ -776,7 +1070,7 @@ class _GesitShellState extends State<GesitShell>
 
     if (path.contains('/leaves')) {
       if (notification.type == AppNotificationType.approval &&
-          _session.canAccessTasks) {
+          session.canAccessTasks) {
         unawaited(_workspaceController.refreshTasks());
         _selectModule(AppShellModule.tasks);
       } else {
@@ -786,7 +1080,7 @@ class _GesitShellState extends State<GesitShell>
     }
 
     if (path.contains('/forms')) {
-      if (_session.canAccessForms) {
+      if (session.canAccessForms) {
         _selectModule(AppShellModule.forms);
       }
       return true;
@@ -842,10 +1136,25 @@ class _GesitShellState extends State<GesitShell>
     return conversationId;
   }
 
+  String? _meetingIdFromPath(String path) {
+    final match = RegExp(r'/meetings/([^/?#]+)').firstMatch(path);
+    final meetingId = match?.group(1)?.trim();
+    if (meetingId == null || meetingId.isEmpty) {
+      return null;
+    }
+
+    return meetingId;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final session = _session;
+    final session = _currentSession;
+    if (session == null) {
+      return const SizedBox.shrink();
+    }
+
     final modules = session.shellModules;
+    final navigationModules = session.bottomNavigationModules;
     final resolvedCurrentModule = modules.contains(_currentModule)
         ? _currentModule
         : modules.first;
@@ -957,7 +1266,7 @@ class _GesitShellState extends State<GesitShell>
           : AnimatedBuilder(
               animation: _navigationListenable,
               builder: (context, _) {
-                final items = modules
+                final items = navigationModules
                     .map(
                       (module) => _NavItem(
                         module: module,
@@ -1011,8 +1320,11 @@ class _GesitShellState extends State<GesitShell>
           onToggleLauncher: _toggleLauncherExpanded,
           unreadNotificationCount: _notificationController.unreadCount,
           feedController: _feedController,
+          homeBannerController: _homeBannerController,
+          apiBaseUrl: session.apiBaseUrl,
           onOpenFeedThread: _openFeedThread,
           onOpenAllFeed: _openFeedTimeline,
+          onOpenHomeBanner: (banner) => unawaited(_openHomeBanner(banner)),
           leaveSummary: _leaveController.dashboard.summary,
         ),
       ),
@@ -1029,6 +1341,11 @@ class _GesitShellState extends State<GesitShell>
         key: const PageStorageKey('chat-tab'),
         controller: _chatController,
         onOpenConversation: _openConversation,
+      ),
+      AppShellModule.meeting when session.canAccessMeeting => MeetingHubScreen(
+        key: const PageStorageKey('meeting-tab'),
+        controller: _meetingController,
+        onJoinMeeting: _openMeetingRoom,
       ),
       AppShellModule.profile => ProfileScreen(
         key: const PageStorageKey('profile-tab'),
@@ -1061,7 +1378,7 @@ class _GesitShellState extends State<GesitShell>
 
     pushBrandedRoute(
       context,
-      ChatCallScreen(
+      chat_call_ui.LiveKitChatCallScreen(
         controller: _chatController,
         conversationId: incomingCall.conversationId,
       ),
@@ -1126,39 +1443,114 @@ class _NotificationBannerLayer extends StatelessWidget {
   }
 }
 
-class _IncomingCallLayer extends StatelessWidget {
+class _IncomingCallLayer extends StatefulWidget {
   const _IncomingCallLayer({required this.controller, required this.onAccept});
 
   final ChatWorkspaceController controller;
   final Future<void> Function(ChatCallSession incomingCall) onAccept;
 
   @override
+  State<_IncomingCallLayer> createState() => _IncomingCallLayerState();
+}
+
+class _IncomingCallLayerState extends State<_IncomingCallLayer> {
+  late final AudioPlayer _ringtonePlayer;
+  String? _ringingCallId;
+
+  @override
+  void initState() {
+    super.initState();
+    _ringtonePlayer = AudioPlayer();
+    widget.controller.addListener(_syncRingtone);
+    _syncRingtone();
+  }
+
+  @override
+  void didUpdateWidget(covariant _IncomingCallLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller == widget.controller) {
+      return;
+    }
+    oldWidget.controller.removeListener(_syncRingtone);
+    widget.controller.addListener(_syncRingtone);
+    _syncRingtone();
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_syncRingtone);
+    unawaited(_ringtonePlayer.dispose());
+    super.dispose();
+  }
+
+  void _syncRingtone() {
+    final incomingCall = widget.controller.hasIncomingCall
+        ? widget.controller.activeCall
+        : null;
+    if (incomingCall == null) {
+      _ringingCallId = null;
+      unawaited(_ringtonePlayer.stop());
+      return;
+    }
+
+    if (_ringingCallId == incomingCall.id && _ringtonePlayer.playing) {
+      return;
+    }
+
+    _ringingCallId = incomingCall.id;
+    unawaited(_startRingtone());
+  }
+
+  Future<void> _startRingtone() async {
+    try {
+      await _ringtonePlayer.setLoopMode(LoopMode.one);
+      await _ringtonePlayer.setVolume(0.92);
+      await _ringtonePlayer.setAsset(
+        'assets/audio/yulie_sekuritas_notifikasi_v2.wav',
+      );
+      await _ringtonePlayer.play();
+    } catch (_) {
+      try {
+        await _ringtonePlayer.setAsset(
+          'assets/audio/yulie_sekuritas_notifikasi.mp3',
+        );
+        await _ringtonePlayer.play();
+      } catch (_) {}
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: controller,
+      animation: widget.controller,
       builder: (context, _) {
-        final incomingCall = controller.hasIncomingCall
-            ? controller.activeCall
+        final incomingCall = widget.controller.hasIncomingCall
+            ? widget.controller.activeCall
             : null;
         if (incomingCall == null) {
           return const SizedBox.shrink();
         }
 
-        return Positioned(
-          left: 16,
-          right: 16,
-          bottom: 16,
+        return Positioned.fill(
           child: SafeArea(
-            top: false,
-            child: _IncomingCallCard(
-              session: incomingCall,
-              accentColor:
-                  controller
-                      .conversationById(incomingCall.conversationId)
-                      ?.accentColor ??
-                  AppColors.goldDeep,
-              onDecline: () => unawaited(controller.declineActiveCall()),
-              onAccept: () => unawaited(onAccept(incomingCall)),
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.46),
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: _IncomingCallCard(
+                    session: incomingCall,
+                    accentColor:
+                        widget.controller
+                            .conversationById(incomingCall.conversationId)
+                            ?.accentColor ??
+                        AppColors.goldDeep,
+                    onDecline: () =>
+                        unawaited(widget.controller.declineActiveCall()),
+                    onAccept: () => unawaited(widget.onAccept(incomingCall)),
+                  ),
+                ),
+              ),
             ),
           ),
         );
@@ -1823,51 +2215,81 @@ class _IncomingCallCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BrandSurface(
-      padding: const EdgeInsets.all(18),
-      radius: 30,
+      padding: const EdgeInsets.fromLTRB(22, 24, 22, 22),
+      radius: 34,
       backgroundColor: AppColors.surface,
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          ConversationAvatar(
-            label: session.title,
-            accentColor: accentColor,
-            isGroup: session.isGroup,
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  session.title,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${session.type.label}${session.isGroup ? ' grup' : ''}',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: AppColors.inkSoft),
+          Container(
+            width: 96,
+            height: 96,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: accentColor.withValues(alpha: 0.14),
+              boxShadow: [
+                BoxShadow(
+                  color: accentColor.withValues(alpha: 0.28),
+                  blurRadius: 34,
+                  spreadRadius: 4,
                 ),
               ],
             ),
-          ),
-          IconButton(
-            onPressed: onDecline,
-            style: IconButton.styleFrom(
-              backgroundColor: AppColors.red.withValues(alpha: 0.12),
-              foregroundColor: AppColors.red,
+            alignment: Alignment.center,
+            child: ConversationAvatar(
+              label: session.title,
+              accentColor: accentColor,
+              isGroup: session.isGroup,
             ),
-            icon: const Icon(Icons.call_end_rounded),
           ),
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: onAccept,
-            style: IconButton.styleFrom(
-              backgroundColor: AppColors.emerald.withValues(alpha: 0.16),
-              foregroundColor: AppColors.emerald,
+          const SizedBox(height: 18),
+          Text(
+            session.title,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${session.type.label}${session.isGroup ? ' grup' : ''} masuk',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: AppColors.inkSoft,
+              fontWeight: FontWeight.w700,
             ),
-            icon: const Icon(Icons.call_rounded),
+          ),
+          const SizedBox(height: 22),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: onDecline,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.red,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  icon: const Icon(Icons.call_end_rounded),
+                  label: const Text('Tolak'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: onAccept,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.emerald,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  icon: const Icon(Icons.call_rounded),
+                  label: const Text('Terima'),
+                ),
+              ),
+            ],
           ),
         ],
       ),

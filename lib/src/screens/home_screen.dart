@@ -1,12 +1,15 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 
 import '../data/feed_controller.dart';
 import '../data/demo_data.dart';
+import '../data/home_banner_controller.dart';
 import '../models/feed_models.dart';
+import '../models/home_banner_models.dart';
 import '../models/leave_models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
@@ -37,8 +40,11 @@ class HomeScreen extends StatefulWidget {
     required this.onToggleLauncher,
     required this.unreadNotificationCount,
     required this.feedController,
+    required this.homeBannerController,
+    required this.apiBaseUrl,
     required this.onOpenFeedThread,
     required this.onOpenAllFeed,
+    required this.onOpenHomeBanner,
     this.leaveSummary,
   });
 
@@ -64,8 +70,11 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback onToggleLauncher;
   final int unreadNotificationCount;
   final FeedController feedController;
+  final HomeBannerController homeBannerController;
+  final String apiBaseUrl;
   final ValueChanged<FeedPost> onOpenFeedThread;
   final VoidCallback onOpenAllFeed;
+  final ValueChanged<HomeBannerItem> onOpenHomeBanner;
   final LeaveDashboardSummary? leaveSummary;
 
   @override
@@ -224,6 +233,7 @@ class _HomeScreenState extends State<HomeScreen> {
         .take(2)
         .toList(growable: false);
     final currentLeave = widget.leaveSummary?.currentLeave;
+    final homeBanners = widget.homeBannerController.banners;
 
     return SingleChildScrollView(
       physics: const ClampingScrollPhysics(),
@@ -309,6 +319,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 request: currentLeave,
                 returnDate: widget.leaveSummary?.currentLeaveReturnDate,
                 onTap: widget.onOpenLeave,
+              ),
+            ),
+          ],
+          if (homeBanners.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            RevealUp(
+              index: 3,
+              child: _HomeBannerCarousel(
+                banners: homeBanners,
+                apiBaseUrl: widget.apiBaseUrl,
+                onTapBanner: widget.onOpenHomeBanner,
               ),
             ),
           ],
@@ -427,6 +448,235 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _HomeBannerCarousel extends StatefulWidget {
+  const _HomeBannerCarousel({
+    required this.banners,
+    required this.apiBaseUrl,
+    required this.onTapBanner,
+  });
+
+  final List<HomeBannerItem> banners;
+  final String apiBaseUrl;
+  final ValueChanged<HomeBannerItem> onTapBanner;
+
+  @override
+  State<_HomeBannerCarousel> createState() => _HomeBannerCarouselState();
+}
+
+class _HomeBannerCarouselState extends State<_HomeBannerCarousel> {
+  late final PageController _pageController;
+  Timer? _timer;
+  int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+    _restartTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant _HomeBannerCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (_currentIndex >= widget.banners.length) {
+      _currentIndex = 0;
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(0);
+      }
+    }
+
+    if (oldWidget.banners.length != widget.banners.length) {
+      _restartTimer();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _restartTimer() {
+    _timer?.cancel();
+    if (widget.banners.length <= 1) {
+      return;
+    }
+
+    _timer = Timer.periodic(const Duration(seconds: 6), (_) {
+      if (!mounted || !_pageController.hasClients || widget.banners.isEmpty) {
+        return;
+      }
+
+      final nextIndex = (_currentIndex + 1) % widget.banners.length;
+      _pageController.animateToPage(
+        nextIndex,
+        duration: const Duration(milliseconds: 360),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final banners = widget.banners;
+    if (banners.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      children: [
+        AspectRatio(
+          aspectRatio: 2,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: AppColors.surfaceAlt,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  PageView.builder(
+                    controller: _pageController,
+                    itemCount: banners.length,
+                    onPageChanged: (index) {
+                      setState(() => _currentIndex = index);
+                    },
+                    itemBuilder: (context, index) {
+                      final banner = banners[index];
+                      return _HomeBannerImage(
+                        banner: banner,
+                        apiBaseUrl: widget.apiBaseUrl,
+                        onTap: banner.hasAction
+                            ? () => widget.onTapBanner(banner)
+                            : null,
+                      );
+                    },
+                  ),
+                  if (banners.length > 1)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 10,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          for (var index = 0; index < banners.length; index++)
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOutCubic,
+                              width: index == _currentIndex ? 18 : 7,
+                              height: 7,
+                              margin: const EdgeInsets.symmetric(horizontal: 3),
+                              decoration: BoxDecoration(
+                                color: index == _currentIndex
+                                    ? AppColors.goldDeep
+                                    : Colors.white.withValues(alpha: 0.86),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.10),
+                                    blurRadius: 8,
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HomeBannerImage extends StatelessWidget {
+  const _HomeBannerImage({
+    required this.banner,
+    required this.apiBaseUrl,
+    required this.onTap,
+  });
+
+  final HomeBannerItem banner;
+  final String apiBaseUrl;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+        final cacheWidth = (constraints.maxWidth * pixelRatio).round();
+        final image = Image.network(
+          banner.resolvedImageUrl(apiBaseUrl),
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          filterQuality: FilterQuality.medium,
+          cacheWidth: cacheWidth > 0 ? cacheWidth : null,
+          webHtmlElementStrategy: kIsWeb
+              ? WebHtmlElementStrategy.prefer
+              : WebHtmlElementStrategy.never,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) {
+              return child;
+            }
+
+            return DecoratedBox(
+              decoration: const BoxDecoration(color: AppColors.surfaceAlt),
+              child: Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.4,
+                    color: AppColors.goldDeep,
+                    value: loadingProgress.expectedTotalBytes == null
+                        ? null
+                        : loadingProgress.cumulativeBytesLoaded /
+                              loadingProgress.expectedTotalBytes!,
+                  ),
+                ),
+              ),
+            );
+          },
+          errorBuilder: (context, error, stackTrace) {
+            return DecoratedBox(
+              decoration: const BoxDecoration(color: AppColors.surfaceAlt),
+              child: Center(
+                child: Icon(
+                  Icons.image_not_supported_rounded,
+                  color: AppColors.inkMuted.withValues(alpha: 0.7),
+                  size: 30,
+                ),
+              ),
+            );
+          },
+        );
+
+        if (onTap == null) {
+          return image;
+        }
+
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(onTap: onTap, child: image),
+        );
+      },
     );
   }
 }

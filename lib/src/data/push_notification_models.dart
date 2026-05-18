@@ -26,6 +26,14 @@ class PushNotificationEnvelope {
         resolvedLink.contains('call=');
   }
 
+  bool get isMeeting {
+    final resolvedLink = link ?? '';
+    return category == 'meeting' ||
+        notificationType == 'meeting_invite' ||
+        notificationType == 'meeting_reminder' ||
+        resolvedLink.contains('/meetings/');
+  }
+
   Map<String, dynamic> toJson() {
     return <String, dynamic>{'data': data, 'title': title, 'body': body};
   }
