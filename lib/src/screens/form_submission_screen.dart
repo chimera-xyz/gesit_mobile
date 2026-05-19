@@ -11,6 +11,7 @@ import '../screens/submission_detail_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_session_scope.dart';
 import '../widgets/brand_widgets.dart';
+import '../widgets/transaction_loading_screen.dart';
 
 class FormSubmissionScreen extends StatefulWidget {
   const FormSubmissionScreen({
@@ -898,11 +899,16 @@ class _FormSubmissionScreenState extends State<FormSubmissionScreen> {
     setState(() => _submitting = true);
 
     try {
-      final createdTask = await widget.controller.submitForm(
-        form: widget.form,
-        formData: formData,
-        files: files,
-        fileGroups: fileGroups,
+      final createdTask = await runWithTransactionLoading<TaskItem>(
+        context: context,
+        message: 'Mengirim pengajuan...',
+        delayedMessage: 'Masih mengirim data ke server.',
+        task: () => widget.controller.submitForm(
+          form: widget.form,
+          formData: formData,
+          files: files,
+          fileGroups: fileGroups,
+        ),
       );
 
       if (!mounted) {

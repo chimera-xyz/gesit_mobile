@@ -10,6 +10,7 @@ import '../data/leave_data_controller.dart';
 import '../models/leave_models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
+import '../widgets/transaction_loading_screen.dart';
 import 'leave_pdf_preview_screen.dart';
 
 class LeaveDashboardScreen extends StatefulWidget {
@@ -74,7 +75,12 @@ class _LeaveDashboardScreenState extends State<LeaveDashboardScreen> {
     }
 
     try {
-      await widget.controller.cancelLeaveRequest(request);
+      await runWithTransactionLoading<void>(
+        context: context,
+        message: 'Membatalkan pengajuan...',
+        delayedMessage: 'Masih memproses pembatalan.',
+        task: () => widget.controller.cancelLeaveRequest(request),
+      );
       if (!mounted) {
         return;
       }
@@ -1930,14 +1936,19 @@ class _LeaveRequestSheetState extends State<_LeaveRequestSheet> {
       _sheetMessage = null;
     });
     try {
-      await widget.controller.submitLeaveRequest(
-        leaveType: leaveType,
-        replacementStaff: replacementStaff,
-        startDate: _startDate,
-        endDate: _endDate,
-        reason: _reasonController.text,
-        requesterSignatureDataUrl: signatureDataUrl,
-        emergencyContact: _emergencyController.text,
+      await runWithTransactionLoading<void>(
+        context: context,
+        message: 'Mengirim pengajuan cuti...',
+        delayedMessage: 'Masih mengirim data ke server.',
+        task: () => widget.controller.submitLeaveRequest(
+          leaveType: leaveType,
+          replacementStaff: replacementStaff,
+          startDate: _startDate,
+          endDate: _endDate,
+          reason: _reasonController.text,
+          requesterSignatureDataUrl: signatureDataUrl,
+          emergencyContact: _emergencyController.text,
+        ),
       );
       if (!mounted) {
         return;

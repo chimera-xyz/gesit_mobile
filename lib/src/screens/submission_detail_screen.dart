@@ -9,6 +9,7 @@ import '../data/workspace_data_controller.dart';
 import '../models/app_models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/brand_widgets.dart';
+import '../widgets/transaction_loading_screen.dart';
 import 'submission_pdf_preview_screen.dart';
 
 class SubmissionDetailScreen extends StatefulWidget {
@@ -226,10 +227,15 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
     setState(() => _processingAction = true);
 
     try {
-      final updatedTask = await widget.controller.approveTask(
-        task: _task,
-        notes: _approvalNoteController.text.trim(),
-        signatureDataUrl: signatureDataUrl,
+      final updatedTask = await runWithTransactionLoading<TaskItem>(
+        context: context,
+        message: 'Menyetujui pengajuan...',
+        delayedMessage: 'Masih memproses approval.',
+        task: () => widget.controller.approveTask(
+          task: _task,
+          notes: _approvalNoteController.text.trim(),
+          signatureDataUrl: signatureDataUrl,
+        ),
       );
       if (!mounted) {
         return;
@@ -268,9 +274,14 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
     setState(() => _processingAction = true);
 
     try {
-      final updatedTask = await widget.controller.rejectTask(
-        task: _task,
-        reason: _approvalNoteController.text.trim(),
+      final updatedTask = await runWithTransactionLoading<TaskItem>(
+        context: context,
+        message: 'Menolak pengajuan...',
+        delayedMessage: 'Masih memproses keputusan.',
+        task: () => widget.controller.rejectTask(
+          task: _task,
+          reason: _approvalNoteController.text.trim(),
+        ),
       );
       if (!mounted) {
         return;
